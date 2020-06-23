@@ -1,0 +1,824 @@
+JDK 1.8
+Maven 
+vertx 3.9.x
+Ecplise/Intelli idea
+***************************************************************************************
+java functional programming
+Reactive Programming
+Vertx Architecture
+Vertx coding
+  ->Future /Promise Style
+  ->Reactive Style
+Vertx Modules
+ ->Core
+ ->Web
+ ->Data
+ ->Microservices
+ ........
+******************************************************************************************
+Java With Functional Programming:
+
+
+What is functional Programming?
+
+1.programming paradigm to build application
+
+java is object oriented functional style programming language.
+
+
+Programming paradigm - style
+
+1.object oriented 
+2.functional programming
+3.Reactive Programming
+......
+
+hybrid =mixing many paradigm in single place.
+
+java oo language
+
+java is oo , functional style, reactive programming.
+
+*******************************************************************************************
+
+Object oriented Principles
+
+1.Abstraction
+2.Encapsulation
+3.Modularity
+4.Typing
+5.Hierachy
+************************
+6.Conncurency
+7.Persistency
+
+if any ln to be certified as object oriented pl,the lng must implement
+the first 5 principles.
+
+java script, object based pl.
+
+object oriented vs object based
+
+if any not implementing the first 5 principles fully or partially
+those languages are called as "object based"
+
+******************************************************************************
+
+functional programming:
+
+functional programming invented by Alonzo Church.
+
+Lambda calculus:
+   Lambda calculus (also written as λ-calculus) is a formal system in mathematical logic for expressing computation based on function abstraction and application using variable binding and substitution.
+
+State Machine/Turing Machine:
+  Turing machine is  also formal system in mathematical logic for expressing computation based on variable abstraction.
+
+
+state machine
+
+x=10; ==1024
+y=20; ==1025
+
+result =1028
+
+int result = x + y
+
+Multi threading, leads thread evils
+
+
+Chruch is student of Alan turing.
+*********************************************************************************************
+Functional programming is application of lambda calculs mathetical theroy.
+
+
+Functional Programming principles:lambda calculs mathetical
+
+1.side effects
+2.Pure functions
+3.immutablity : referential transparency.
+4.function is the first class cizitens
+5.no loops, but recurrsion.
+6.Higher order function
+
+
+if any language follows the all principles those languages called as pure functional functional programming.
+
+
+pure vs style
+
+what if languages partially implements fp principles "those language languages are called
+
+as "functional style programming"
+
+
+java :  
+
+Object oriented, functional style pl.
+
+******************************************************************************************
+
+Lambda Calculs implementation in java:
+.......................................
+
+java implements lambda via inner classes 
+  ->: mostly Anonymous Inner Classes
+
+Inner classes :
+
+1.Regular Inner Classes 
+2.Method-local Inner Classes
+3.Anonymous Inner Classes
+4.Static Nested Classes.
+ 
+******************************************************************************************
+
+create maven project.
+
+  "Lamda expressions are implemented with help of innerclasses behind the scenes"
+
+            "functional programming is implented through inner classes"
+
+
+1.Anonymous Inner Classes
+
+interfaces:
+
+->to hide functionality of any implementation.
+->declare once , implement across different classes. code sharing.
+
+package com.unisys.fp;
+//interface as generic declaration for many implementation
+interface Greeter{
+  String saySomething();
+}
+
+class HelloImpl implements Greeter{
+    public String saySomething() {
+        return "hello";
+    }
+}
+class HaiImpl implements  Greeter {
+    public String saySomething() {
+        return "Hai";
+    }
+}
+
+public  class GreeterMain {
+    public static void main(String[] args) {
+        //interface
+        Greeter greeter = null;
+        greeter = new HelloImpl();
+        System.out.println(greeter.saySomething());
+        greeter = new HaiImpl();
+        System.out.println(greeter.saySomething());
+    }
+}
+*****************************************************************************************
+inner class :Anonymous Inner Classes
+
+Why anonymous inner classes:
+
+1.you can avoid implemnetation classes.
+
+package com.unisys.fp.innercls;
+
+interface Greeter{
+    String saySomething();
+}
+//implemnetation classes
+//class HelloImpl implements Greeter {
+//    public String saySomething() {
+//        return "hello";
+//    }
+//}
+//class HaiImpl implements Greeter {
+//    public String saySomething() {
+//        return "Hai";
+//    }
+//}
+
+public class GreeterMain {
+    public static void main(String[] args) {
+        //annonous inner classes
+        Greeter greeter = null;
+        //provide implementation without extra class
+
+        //Hello impl
+        greeter = new Greeter() {
+            public String saySomething() {
+                return "Hello";
+            }
+        };
+        System.out.println(greeter.saySomething());
+       //Hai impl
+        greeter = new Greeter() {
+            public String saySomething() {
+                return "Hai";
+            }
+        };
+        System.out.println(greeter.saySomething());
+
+
+
+    }
+}
+////////////////////////////////////////////////////////////////////////////////////////
+
+How to use built in interfaces using inner classes
+
+package com.unisys.fp.innercls;
+
+public class ThreadInner {
+    public static void main(String[] args) {
+        //Threads
+        Runnable runnable = null;
+        runnable=new Runnable() {
+            public void run() {
+                System.out.println(Thread.currentThread().getName());
+            }
+        };
+        //syntax 1
+        Thread t1 = new Thread(runnable);
+        t1.start();
+
+        //syntax 2
+        Thread t2 = new Thread(new Runnable() {
+            public void run() {
+                System.out.println(Thread.currentThread().getName());
+            }
+        });
+        t2.start();
+    }
+}
+
+*******************************************************************************************
+
+functional programming and anonmous inner classes implemneted via interfaces:
+
+Rules to implement fp :
+
+Functional interfaces
+
+1.interface must have only one abstract method.
+  this is called "SAM"  - Single Abstract method
+
+2.interface can have default methods
+
+3.interface can have static methods
+
+Lambda expression is representation of "functional:abstraction"
+
+package com.unisys.fp.lambda;
+
+//interface to implement lambda
+interface Greeter{
+    //Abstract method
+    String saySomething();
+}
+
+class GreeterImpl implements Greeter{
+    public String saySomething() {
+        return "Hello";
+    }
+}
+
+public class BasicLambda {
+    public static void main(String[] args) {
+      //Implmentation for Greeter
+      //way1 : via concrete class
+        Greeter greeter = null;
+        greeter = new GreeterImpl();
+        System.out.println(greeter.saySomething());
+
+        //way 2: via anonmous inner class
+        greeter = new Greeter() {
+            public String saySomething() {
+                return "Hai";
+            }
+        };
+        System.out.println(greeter.saySomething());
+
+        //Way 3 : via lambda expression
+
+        greeter =()-> {
+                return "Hai Lambda";
+        };
+        System.out.println(greeter.saySomething());
+
+
+    }
+}
+
+***************************************************************************************
+Lambda rules:
+............
+
+package com.unisys.fp.lambda;
+
+interface Welcome {
+    //abstract methods
+    void saySomething();
+    //void doSomething(); //error when you add extra abstract methods
+   default void doSomething(){
+       System.out.println("Do something default method");
+   }
+   static void doStuff(){
+       System.out.println("Static method inside SAM");
+   }
+}
+
+
+public class LambdaExpressionRules {
+    public static void main(String[] args) {
+        Welcome welcome = null;
+        //welcome.doSomething(); throws null pointer exeception
+
+        //with single abstract method
+        welcome = () -> {
+            System.out.println("Welcome to Lambda");
+        };
+        welcome.saySomething();
+        welcome.doSomething();
+
+        //call static method
+        Welcome.doStuff();
+
+    }
+}
+*******************************************************************************************
+interface designers , design interface, the other dev uses that interfaces as functional interface.
+
+in order to develop interfaces are functional interfaces, so that the interface users wont 
+end up with problems later.
+
+functional interface errors can be dedecuted during interface design itself.
+ using
+
+@FunctionalInterface annotation
+
+package com.unisys.fp.lambda;
+
+interface Welcome {
+    //abstract methods
+    void saySomething();
+
+    //void doSomething(); //error when you add extra abstract methods
+    default void doSomething() {
+        System.out.println("Do something default method");
+    }
+    static void doStuff() {
+        System.out.println("Static method inside SAM");
+    }
+}
+
+@FunctionalInterface
+interface Hello {
+    void sayHello();
+    //void sayHai();
+    default void doSomething() {
+        System.out.println("Do something default method");
+    }
+
+    static void doStuff() {
+        System.out.println("Static method inside SAM");
+    }
+}
+
+
+public class LambdaExpressionRules {
+    public static void main(String[] args) {
+        Welcome welcome = null;
+        //welcome.doSomething(); throws null pointer exeception
+
+        //with single abstract method
+        welcome = () -> {
+            System.out.println("Welcome to Lambda");
+        };
+        welcome.saySomething();
+        welcome.doSomething();
+
+        //call static method
+        Welcome.doStuff();
+
+        Hello hello = null;
+        hello = ()->{
+            System.out.println("Hello");
+        };
+        hello.sayHello();
+        hello.doSomething();
+        Hello.doStuff();
+
+    }
+}
+********************************************************************************************
+
+Lambda Deep :
+package com.unisys.fp.lambda;
+
+@FunctionalInterface
+interface  MyFunction{
+    void sayHello();
+}
+//parameters and args : more than one parameters and args
+@FunctionalInterface
+interface Details{
+    //value1 and value2 are args
+    void setDetails(String value1,String value2);
+}
+@FunctionalInterface
+interface Single{
+    void setName(String name);
+}
+//return
+@FunctionalInterface
+interface Stock{
+    int getStock();
+}
+
+//more than one parameter
+@FunctionalInterface
+interface  Calculator{
+    int calculate(int a, int b);
+}
+
+@FunctionalInterface
+interface MyFunction2{
+    String getValue(String value);
+}
+
+public class LambdaExpressionDeep {
+    public static void main(String[] args) {
+        MyFunction myFunction = null;
+
+        myFunction = ()->{
+            //function body
+            System.out.println("Hello!");
+        };
+        myFunction.sayHello();
+        //code refactoring with lambda
+        /**
+         * if lambda body has only one line of code, we can remove {}
+         */
+        myFunction = ()->System.out.println("Hello!");
+        myFunction.sayHello();
+        ////////////////////////////////////////////////////////////////////////
+        //Args and parameters : more than one args
+        Details details = null;
+
+        details = (String value1,String value2)->{
+            System.out.println(value1 + " " + value2);
+        };
+        details.setDetails("Hello" , "Hai");
+        //code refeactoring
+        details = (String value1,String value2)-> System.out.println(value1 + " " + value2);
+        //Hello, Hai are parameters
+        details.setDetails("Hello" , "Hai");
+
+        //code refactoring : type inference, in lambda args type need not be specified
+        details = (value1,value2)-> System.out.println(value1 + " " + value2);
+        //Hello, Hai are parameters
+        details.setDetails("Hello" , "Hai");
+        /////////////////////////////////////////////////////////////////////////////////////////
+        Single single = null;
+        single = (String name)-> System.out.println(name);
+        single.setName("Subramanian");
+        //With type inference
+        single = (name)-> System.out.println(name);
+        single.setName("Subramanian");
+        //if single arg and parameter , remove ()
+        single = name-> System.out.println(name);
+        single.setName("Subramanian");
+
+        //************Return ****************************************
+        Stock stock = null;
+        stock = ()->{
+            return 100;
+        };
+        System.out.println(stock.getStock());
+        //if only return statement inside function body, remove {} and remove retun statement
+        stock = ()->100;
+        System.out.println(stock.getStock());
+        //**********************Parameter/Args and Return*****************************************
+        Calculator calculator = null;
+
+        calculator = (a,b)->{
+            return a + b;
+        };
+        System.out.println(calculator.calculate(12,23));
+        //refactoring
+        calculator = (a,b)->a + b;
+        System.out.println(calculator.calculate(12,23));
+        //Single Parameter
+        MyFunction2 myFunction2 = null;
+        //
+        myFunction2 = (value)->{
+            return value;
+        };
+        System.out.println(myFunction2.getValue("Welcome"));
+        //code refactoring
+        myFunction2 = value->value;
+        System.out.println(myFunction2.getValue("Welcome"));
+
+
+
+    }
+}
+*******************************************************************************************
+
+Function parameters and args: Advanced
+.............................
+
+What could be function parameters
+
+1.primitives
+2.objects
+3.function as parameter
+
+FP Principle:
+
+"function is first class citizens , functions can be passed as parameter to another function"
+
+package com.unisys.fp.lambda;
+
+
+@FunctionalInterface
+interface Handler {
+    void connect();
+}
+
+//class : Database
+
+class Database {
+    //ConnectDb takes Handler as type
+    public void connectDb(Handler handler) {
+        //invoke handler connect function
+        handler.connect();
+    }
+}
+
+//old
+class DatabaseImpl implements Handler {
+    @Override
+    public void connect() {
+        System.out.println("Database connection is ready!");
+    }
+}
+
+public class FunctionAsParameter {
+    public static void main(String[] args) {
+        //Create Database Instance
+        Database database = new Database();
+        //Way 1 :using external class
+        //call connectDB method and pass Handler reference
+        Handler databaseImpl = new DatabaseImpl();
+        database.connectDb(databaseImpl);
+
+        //Way 2: using annomous inner class
+        database.connectDb(new Handler() {
+            @Override
+            public void connect() {
+                System.out.println("Database connection is ready inside annonmous class");
+            }
+        });
+
+        //Way 3 : using lambda ; function as parameter
+        //3.1 : write lambda separatly and pass the reference
+        Handler handler = () -> System.out.println("Database connection is ready inside Lambda ");
+        database.connectDb(handler);
+        //3.2: inline lambda
+        database.connectDb(()-> System.out.println("Database connection is ready inside lambda inline"));
+
+
+    }
+}
+**********************************************************************************************
+
+Function as Parameters with input
+
+
+package com.unisys.fp.lambda;
+
+import java.util.Arrays;
+import java.util.List;
+
+@FunctionalInterface
+interface Handler {
+    void connect();
+}
+
+//class : Database
+class Database {
+    //ConnectDb takes Handler as type
+    public void connectDb(Handler handler) {
+        //invoke handler connect function
+        handler.connect();
+    }
+}
+
+//old
+class DatabaseImpl implements Handler {
+    @Override
+    public void connect() {
+        System.out.println("Database connection is ready!");
+    }
+}
+
+//Function as parameter with input
+
+@FunctionalInterface
+interface HTTPGetHandler {
+    void get(Object response);
+}
+
+class HttpServer {
+    public void fetch(HTTPGetHandler httpGetHandler) {
+        //fake response
+        List<String> response = Arrays.asList("Subramanian", "Geetha", "Srisha", "DhivayaSree");
+        //return the response
+        httpGetHandler.get(response);
+    }
+}
+
+public class FunctionAsParameter {
+    public static void main(String[] args) {
+        //Create Database Instance
+        Database database = new Database();
+        //Way 1 :using external class
+        //call connectDB method and pass Handler reference
+        Handler databaseImpl = new DatabaseImpl();
+        database.connectDb(databaseImpl);
+
+        //Way 2: using annomous inner class
+        database.connectDb(new Handler() {
+            @Override
+            public void connect() {
+                System.out.println("Database connection is ready inside annonmous class");
+            }
+        });
+
+        //Way 3 : using lambda ; function as parameter
+        //3.1 : write lambda separatly and pass the reference
+        Handler handler = () -> System.out.println("Database connection is ready inside Lambda ");
+        database.connectDb(handler);
+        //3.2: inline lambda
+        database.connectDb(() -> System.out.println("Database connection is ready inside lambda inline"));
+        /////////////////////////////////////////////////////////////////////////////////////////////////
+        HttpServer httpServer = new HttpServer();
+        //3.1 : write lambda separatly and pass the reference
+        HTTPGetHandler httpGetHandler = res -> System.out.println(res);
+        httpServer.fetch(httpGetHandler);
+        //3.2: inline lambda
+        httpServer.fetch(res-> System.out.println(res));
+
+    }
+}
+*****************************************************************************************
+Lab:
+
+1.Create class called Auth
+2.Declare method called login inside class
+3.login method must take two functional interface as parameter
+  -Resolve,Reject - interface
+    |        |
+    resolve  reject -methods Type can be Object.
+4.have some fake login logic, if login success, return response with "Resolve" interface
+  Reject interface if login fails.
+
+********************************************************************************************
+
+Variable Capture:
+
+ how to use instance variables and local variables inside lambda.
+
+
+package com.unisys.fp.lambda;
+
+
+import java.util.Calendar;
+
+@FunctionalInterface
+interface Variable {
+    void doIt();
+}
+
+//class
+class Capture {
+
+    //instance variable
+    int counter = 10;
+    public void doStuff() {
+        Variable variable = () -> {
+            //capaturing instance variable inside lambda
+            System.out.println(counter);
+        };
+        variable.doIt();
+    }
+}
+
+public class VariableCapture {
+    public static void main(String[] args) {
+        Capture capture = new Capture();
+        capture.doStuff();
+        //local variable
+        String name="Hello , I am local Variable";
+        Variable variable = () -> {
+            //capaturing local variable inside lambda
+            System.out.println(name);
+        };
+        variable.doIt();
+
+
+    }
+}
+******************************************************************************************
+
+Method References:
+Passing instance method of an object and static method of an class to Lambda
+
+instance method 
+this::methodName
+
+class method -static methods
+package com.unisys.fp.lambda;
+
+@FunctionalInterface
+interface Printer {
+    void print(String value);
+}
+
+class MicroTaskRunner {
+    public void startMicroTaskInstance() {
+        for (int i = 0; i < 5; i++) {
+            System.out.println("MicroTaskRunner Instance " + Thread.currentThread().getName());
+        }
+    }
+
+    public static void startMicroTaskStatic() {
+        for (int i = 0; i < 5; i++) {
+            System.out.println("MicroTaskRunner Static " + Thread.currentThread().getName());
+        }
+    }
+}
+//class Loop
+
+class Loop {
+
+    //instance method
+    private void startMicroTask() {
+        for (int i = 0; i < 5; i++) {
+            System.out.println("MicroTask" + Thread.currentThread().getName());
+        }
+    }
+
+    public void start() {
+        Thread thread = null;
+        thread = new Thread(() -> {
+            System.out.println("My Thread " + Thread.currentThread().getName());
+        });
+        thread.start();
+        //isloate thread runnable logic into a separte method
+        thread = new Thread(() -> startMicroTask());
+        thread.start();
+        //isloate thread runnable logic into a separate method : Method reference syntax
+        thread = new Thread(this::startMicroTask);
+        thread.start();
+        //passing other class instance method using method reference
+        thread = new Thread(new MicroTaskRunner()::startMicroTaskInstance);
+        thread.start();
+        //passing other class static method using method reference
+        thread = new Thread(MicroTaskRunner::startMicroTaskStatic);
+        thread.start();
+
+    }
+}
+
+
+public class MethodReference {
+    public static void main(String[] args) {
+        Loop loop = new Loop();
+        loop.start();
+
+        //Method  Reference using  Printer interface
+        Printer printer = null;
+        printer = value -> {
+            System.out.println(value);
+        };
+        printer.print("Hello");
+
+        printer = value -> System.out.println(value);
+        printer.print("Hello");
+
+        //use method reference using System.out.println : if method returns , pass inside sop, write below
+        printer = System.out::println;
+        printer.print("Hello");
+
+        HttpServer httpServer = new HttpServer();
+        //3.1 : write lambda separatly and pass the reference
+        HTTPGetHandler httpGetHandler = System.out::println;
+        httpServer.fetch(httpGetHandler);
+        //3.2: inline lambda
+        httpServer.fetch(System.out::println);
+
+    }
+}

@@ -1,0 +1,137 @@
+                              Vertx
+
+Java 8 functional programming
+functional programming principles
+lambda deep understanding
+
+Reactive Programming
+What is reactive programming
+Reactive applications principles
+Rxjava implementation
+Observables
+Operators
+Up Stream and Down stream
+Hot and Cold Stream
+Rxjava2 BackPressure apis
+Java 9 backpressure apis
+
+
+
+Vertx architecture
+Non blocking 
+Blocking 
+Vertx internals
+Event Loop
+The Golden Rule , Dont Block Event Loop
+Netty
+Vertx Programming setup
+Running Vertx 
+Vertx Polyglot technologies
+Verticles
+Verticle types
+Vertx Modules
+Core
+Web
+Data
+WebClient
+Microservices
+
+Vertx Futures and Promises
+Callbacks
+Async Programming
+CompositFuture
+Sequential Composition
+Async Verticles start and stop
+Nested Callback
+Callback hell
+Promises overview
+Verticle deployments
+Vertx Deployment options
+Verticle Deployment options
+
+Non Blocking Apis
+File System
+HTTP api
+Buffer
+Timer api
+TCP Server and clients
+
+
+JSON Parsers
+JSON Objects
+
+Vertx Scalability
+Vertx Clustering
+Vertx High Availablity
+
+
+Event Bus
+Sending and receiving messages
+
+Vertx Data
+Vert.x Modules-Data Access-Java
+Vert.x Data Access Sub Modules
+Mongo Client
+JDBC Client
+
+Vertx Web
+Re-cap on Vert.x core HTTP servers
+Basic Vert.x-Web concepts
+Building RESTFull web services
+Handling requests and calling the next handler
+Using blocking handlers
+Routers
+SubRouters
+Request Body Handling
+PathParameters
+Templates
+
+Micro services
+ Vert.x offers various component to build micro service-based applications.
+ Vert.x Service Discovery
+ This component lets you publish, lookup and bind to any type of services.
+ Using the service discovery
+ Overall concepts
+ Creating a service discovery instance
+Publishing services
+ Withdrawing services
+ Looking for services
+ Retrieving a service reference
+ Types of services
+ Listening for service arrivals and departures
+ Listening for service usage
+ Service discovery bridges
+ Additional bridges
+ Additional backends
+ This component provides an infrastructure to publish and discover various resources,
+ such as service proxies, HTTP endpoints, data
+ Vert.x Circuit Breaker
+ Vert.x Circuit Breaker
+ Using the vert.x circuit breaker
+ Using the circuit breaker
+ Retries
+ Callbacks
+ Event bus notification
+ The half-open state
+ Reported exceptions
+ Pushing circuit breaker metrics to the Hystrix Dashboard
+ Using Netflix Hystrix
+ Vert.x Config
+Concepts
+ Using the Config Retriever
+ Overloading rules
+ Using the retrieve configuration
+ Available configuration stores
+ Listening for configuration changes
+ Retrieving the last retrieved configuration
+ Reading configuration as a stream
+ Processing the configuration
+ Retrieving the configuration as a Future
+ Extending the Config Retriever
+ Additional formats
+ Additional stores
+
+
+
+
+
