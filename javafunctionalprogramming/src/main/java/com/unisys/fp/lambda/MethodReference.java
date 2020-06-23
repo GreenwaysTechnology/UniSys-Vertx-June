@@ -35,10 +35,10 @@ class Loop {
             System.out.println("My Thread " + Thread.currentThread().getName());
         });
         thread.start();
-        //isloate thread runnable logic into a separte method
+        //isolate thread runnable logic into a separte method
         thread = new Thread(() -> startMicroTask());
         thread.start();
-        //isloate thread runnable logic into a separate method : Method reference syntax
+        //isolate thread runnable logic into a separate method : Method reference syntax
         thread = new Thread(this::startMicroTask);
         thread.start();
         //passing other class instance method using method reference

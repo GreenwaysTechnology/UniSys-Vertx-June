@@ -1,0 +1,601 @@
+                                       Vert.x
+
+
+What is Vert.X?
+
+ Vert.x is a tool-kit to build
+       functional style,
+       non blocking or async,
+       poly glot,
+       Event driven,
+       Reactive, 
+            Distributed Application(MicroService) on 
+                       JVM
+
+Non Blocking and Async Programming:
+
+Concurrency:
+  Doing many thing, at the same time
+Multi threading
+
+
+Runtime:
+
+  Program which is abstraction for applications 
+  Program which is between the os and application.
+
+Every application must have runtime which is running on computers
+EG:
+ jvm
+
+Program Types:
+
+1. active program: The program in Main Memory.
+    ->Process : Program in exuction
+ any program, in main memory must have , structure : process structure.
+Any runtime will become process
+ java -JVM-Process--->
+
+Mostly all process are c programs.
+
+2.passive program ; program which is not in main memory/ which is not accessed by cpu.
+
+
+Heap:
+  The ds for allocating dynamic memory .
+
+Stack:
+  The ds for  allocating dynamic memory.
+
+Program data;
+
+ it is ds for passive programs of running application.
+
+
+What is Object?
+
+The term object refers "memory representation of variables and methods in side heap of  
+a process" : collective memory.
+
+since memory representation , will have a structure.
+
+passive code     ----->Active code
+class Employee {
+  state:variables
+  methods
+  public void calculate(){
+  	//biz logic
+  }
+ 
+} ---->new Employee()---->
+
+What is the structure of object?
+
+state
+vtable
+
+why vtable?
+ vtable will have only reference of methods passivly.
+ because of memory management.
+
+
+****************************************************************************************
+
+Stack frame : single execution point of   a method.
+
+Can i run multi stack frame at the same time?
+ Generally no!
+But yes!
+
+someref.somemethod()---push into stack----frame is created---running..
+
+someref.somemethod1()---push into stack----frame is created---running..
+
+thread of execution / "thread" : 
+
+  method of execution - single stack frame
+
+
+Process Level Multi threading:
+
+1.Process is responsible for creating and managing life cycles of frames(threads).
+
+This is the architecture we have been using for long time.
+
+This  architecture is called Process level Concurrency
+
+******************************************************************************************
+
+is there any problems with process level concurrency/multithreading?
+
+
+
+Use case of network computing?
+
+Java Networking and concurrency (Servlet)
+
+ Servlet is program which has methods -GET,POST =>DOGET,DOPOST.
+  Servlet is exucted on jvm(Tomcat)
+
+Traditional web work flow:
+
+			       JVM
+				|
+client---http--req1-------WebServer(Tomcat)----create a thread(get)---frame(thread)
+client---http--req1-------WebServer(Tomcat)----create a thread(get)---frame(thread)
+client---http--req1-------WebServer(Tomcat)----create a thread(get)---frame(thread)
+client---http--req1-------WebServer(Tomcat)----create a thread(get)---frame(thread)   
+client---http--req1-------WebServer(Tomcat)----create a thread(get)---frame(thread)
+
+
+
+Evils of "Process level multi threading".
+
+1.Blocking: use case , i want to read file and return that file to users.
+
+
+client---http--req1-------WebServer(Tomcat)----create a thread()---frame(thread) --
+                                                                            
+                                                                       to read disk file
+
+While reading disk file, the thread is blocked until file content is ready.
+While thread is blocked, resources are going to be waste, 
+
+2.dead lock may happen
+
+3.starativation
+
+4.reace conditions.
+
+         since tomcat is managing all thread life cycles, problems starts.
+
+*********************************************************************************************
+
+
+What is solution?
+
+ isloate process level threading.
+ Dont ask process to create multi threading.
+
+                                   
+                                 "Worker thread Model" (OS Kernal Threads). 
+					 |
+				   Non Blocking
+					 |
+				      Async
+
+
+The process(Runtime) never creates any threads,handles thread biz logic rather than 
+process will delegate to the OS , to perform
+
+We are going to offload the jobs from process level to os level : Non blocking archiecture.
+
+
+
+Java and Non blocking Programming:
+
+ Does java support non blocking(worker-thread) model?
+ Does jvm supports non blocking,evented concurrency?
+
+No!
+
+Yes from Java 7 called "Dolphin".
+
+Dolphin introduced experimental model for building fast disk io, called "NIO"
+  NONBlocking IO. But not based on  worker thread model.
+
+That was beginning
+
+  due to low support from the java, only disk io was implemented: nio
+
+later it was improved to support read and write using nio for TCP/IP . but it is still not
+not "Worker thread Model".
+
+...............................................................................................
+                                   Reactor Design Pattern
+.............................................................................................
+
+                All non blocking architectures(worker-thread( are designed with  
+                         "Reactor Design pattern" Pattern.
+
+
+
+Reactor design pattern implementations:
+
+1.nodejs
+2.Vertx
+3.Project Reactor (used in springWebFlux)
+4.nginx
+etc.......
+
+Reactor design pattern in java:
+..............................
+
+NETTY : First Non blocking and async architecture for jvm.
+
+ "Netty is a NIO client server framework which enables quick and easy development of network applications such as protocol servers and clients. "
+
+It greatly simplifies and streamlines network programming such as TCP and UDP socket server.
+
+Unified API for various transport types - blocking and non-blocking socket
+
+Based on a flexible and extensible event model which allows clear separation of concerns
+
+		       Netty
+		         |
+          	      nettycore
+			 |
+			nio
+			 |
+		        jvm
+
+Netty project provides:
+1.nio only for disk io but netty provided more io like
+   tcp/ip,sockets,udp,http
+  non blocking  
+    netty uses "Reactor Model" internaly
+
+
+
+Apache MINA 
+
+  Apache MINA is a network application framework which helps users develop high performance and high scalability network applications easily.
+ It provides an abstract event-driven asynchronous API over various transports such as TCP/IP and 
+
+UDP/IP via Java NIO.
+NIO framework library,
+client server framework library, or
+a networking socket library
+
+
+
+ 		    Apache MINA 
+		         |
+          	      Minaapi
+			 |
+			nio
+			 |
+		        jvm
+*********************************************************************************************
+
+
+
+                                    Vertx
+
+
+Birth of Vertx Project
+
+Vertx was born to simulate Node.js Capability on JVM. initally it was named "Node.X"
+
+A core project, called vertx-core, provides the APIs for asynchronous programming, non-blocking I/O, streaming, and convenient access to networked protocols such as TCP, UDP, DNS, HTTP or Web Sockets,
+
+Vertx is industry ready , polyglot toolkit for building Non blocking,async,evented io applications.
+
+Vertx has been built on the top of Netty Core.
+
+
+			VertxApplication
+			      |
+			Vertx Core Runtime
+			      |
+			   Netty Core
+			      |
+			     NIO
+			      |
+			     JVM
+
+
+
+Objective of VertX:
+   
+    100% non blocking applications on jvm.
+
+
+
+NonBlocking IO Apis
+
+                NonBlocking IO Application -VertApplication
+   --------------------------------------------------------------------		
+    Vertx-FS  Vertx-TCP/IP  Vertx-UDP Vertx-HTTP Vertx-HTTPS Vertx-SMTP .....
+  ---------------------------------------------------------------------
+			      |
+			Vertx Core Runtime
+			      |
+			   Netty Core
+			      |
+			     NIO
+			      |
+			     JVM
+
+
+
+vert-x is poly glot:
+
+ Vertx is java technology platform, Vertx runs on JVM.
+ Fundamentally JVM supports multiple language as JVM Spec dt 2003.
+
+
+             Java PL  Groovy Kotlin  Javascript  scala Ruby
+		|       |     |         |         |     |
+      -------------------------------------------------------------
+                               .class
+				 |
+   --------------------------------------------------------------------		
+       Vertx-FS  Vertx-TCP/IP  Vertx-UDP Vertx-HTTP Vertx-HTTPS Vertx-SMTP .....
+  ---------------------------------------------------------------------
+			      |
+			Vertx Core Runtime
+			      |
+			   Netty Core
+			      |
+			     NIO
+			      |
+			     JVM
+**********************************************************************************************
+
+Event driven Programming;
+........................
+Vertx is powered by non blocking with help of "Built in Event Mechnism" Called "Event Bus".
+  -Application events
+
+Dont call us,we will call you ----- Event Driven programming
+
+
+
+Req : to read database records
+
+  Client----req -----Vertx---|---delegate db operations--db
+
+					db operations done
+					<--inform vertx 
+*******************************************************************************************
+
+Vertx Tech Stack
+  Build async,non blocking Apps
+
+Spring is collection of projects called modules
+  like core,data,mvc,integration,microservice.............
+
+Like Spring Vertx is also collection projects
+
+Vertx-core
+vertx-web
+Vertx-Data
+Vertx-Reactive Extension
+Vertx-Microservices
+Vertx-Messaging
+Vertx-Security
+Vertx-Integration
+Vertx-Devops Engineering
+Vertx-Testing
+Vertx-Clusters
+Vertx-Services
+Vertx-Cloud
+
+******************************************************************************************
+
+Vertx-Core:
+
+Writing TCP clients and servers
+Writing HTTP clients and servers including support for WebSockets
+The Event bus
+Shared data - local maps and clustered distributed maps
+Periodic and delayed actions
+Deploying and undeploying Verticles
+Datagram Sockets
+DNS client
+File system access
+High availability
+Native transports
+Clustering   
+*******************************************************************************************
+//////////////////////////////////////////////////////////////////////////////////////////////
+
+
+Does Vertx 100% NonBlocking Platform?
+  Yes!, some of the API in Vertx is blocking  , particullary fs apis.
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
+Vertx Application setup /Project Setup:
+.......................................
+
+ways :
+
+1.maven
+2.Gradle
+
+1.plain maven project, add vertx depedencies,You can use template entry method provided by
+vertx .
+
+2.Vertx Starter project
+
+3.Vertx maven cli project
+
+********************************************************************************************
+
+In terminal window
+
+Run :
+
+Way 1: Using maven plugin :
+
+>mvn package exec:java
+
+open browser
+
+http://localhost:8888
+
+Way 2: fat jar
+
+java -jar target/vertx-start-project-1.0-SNAPSHOT-fat.jar
+
+
+Way 3 : vertx cli tool
+
+no need to compile,
+no need .class files
+only source code 
+
+C:\session\UniSys-Vertx\unisysverxdemo\src\main\java\com\unisys\vertx>vertx run MainVerticle.java
+
+
+Way 4 : via Runner utility class : looks like main methods
+
+
+Have Runner class
+
+package com.unisys.vertx;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.example.util.Runner;
+
+public class MainVerticleRunnerDemo extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(MainVerticleRunnerDemo.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    System.out.println("Hello Vertx!!!");
+  }
+}
+******************************************************************************************
+
+Vertx Core Concepts:
+....................
+
+What is vertx application?
+
+ Vertx is collection of objects.
+
+Vertx Objects
+1.Verticle
+2.Vertx 
+
+Vertx is Core  and Container object , which contains other objects ==== Spring Container.
+
+How to create vertx object?
+
+vertx offers only high level apis mostly through interfaces, implementations classes we cant see.
+
+how to create vertx instance?
+
+ways
+
+1.using Vertx factory api
+
+public class HelloWorldVertx {
+  public static void main(String[] args) {
+    //Create Vertx Instance
+    Vertx vertx = Vertx.vertx();
+    System.out.println(vertx.toString());
+  }
+
+2.Via  class called AbstractVerticle
+
+A verticle is a piece of code that can be "deployed" by Vert.x.
+  -deployment : make avaialble on Vertx runtime.
+ Verticle is Object , can do lot of things which is deployment on Vertx Instance
+
+Use of verticles with Vert.x is entirely optional, but if you use them they provide an actor-like deployment and concurrency model, out of the box
+
+The verticles communicate with each other by sending messages over the EventBus.
+
+******************************************************************************************
+
+if you want to create your own verticles, then you have to inherit AbstractVerticle
+
+if you inherit AbstractVertcle, vertx reference is availble automatically,you need not use
+factory method.
+
+Abstract verticle provides life cycle methods
+
+start
+  - is called once , you deploy the verticle on vertx
+stop
+ - is called once , you undeploy the verticle from vertx
+
+
+
+package com.unisys.vertx;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Vertx;
+import io.vertx.example.util.Runner;
+
+//separate Verticle
+class HelloWorldVerticle extends AbstractVerticle {
+  @Override
+  public void start() throws Exception {
+    super.start();
+    System.out.println("HelloWorld Verticle is ready");
+    System.out.println(vertx.toString());
+  }
+
+  @Override
+  public void stop() throws Exception {
+    super.stop();
+    System.out.println("Hello World is stoped");
+  }
+}
+
+class GreeterVerticle extends AbstractVerticle {
+  @Override
+  public void start() throws Exception {
+    super.start();
+    System.out.println("Greeter Verticle is ready");
+    System.out.println(vertx.toString());
+  }
+
+  @Override
+  public void stop() throws Exception {
+    super.stop();
+    System.out.println("Hello World is stoped");
+  }
+}
+
+public class HelloWorldVerticleMain extends AbstractVerticle {
+  public static void main(String[] args) {
+    //Vertx vertx = Vertx.vertx();
+    //vertx.deployVerticle(new HelloWorldVerticle());
+    Runner.runExample(HelloWorldVerticleMain.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new HelloWorldVerticle());
+    vertx.deployVerticle(new GreeterVerticle());
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -38,6 +38,7 @@ class HttpServer {
         //return the response
         httpGetHandler.get(response);
     }
+
 }
 
 public class FunctionAsParameter {
@@ -49,23 +50,23 @@ public class FunctionAsParameter {
         Handler databaseImpl = new DatabaseImpl();
         database.connectDb(databaseImpl);
 
-        //Way 2: using annomous inner class
+        //Way 2: using anonymous inner class
         database.connectDb(new Handler() {
             @Override
             public void connect() {
-                System.out.println("Database connection is ready inside annonmous class");
+                System.out.println("Database connection is ready inside anonymous class");
             }
         });
 
         //Way 3 : using lambda ; function as parameter
-        //3.1 : write lambda separatly and pass the reference
+        //3.1 : write lambda separately and pass the reference
         Handler handler = () -> System.out.println("Database connection is ready inside Lambda ");
         database.connectDb(handler);
         //3.2: inline lambda
         database.connectDb(() -> System.out.println("Database connection is ready inside lambda inline"));
         /////////////////////////////////////////////////////////////////////////////////////////////////
         HttpServer httpServer = new HttpServer();
-        //3.1 : write lambda separatly and pass the reference
+        //3.1 : write lambda separately and pass the reference
         HTTPGetHandler httpGetHandler = res -> System.out.println(res);
         httpServer.fetch(httpGetHandler);
         //3.2: inline lambda
