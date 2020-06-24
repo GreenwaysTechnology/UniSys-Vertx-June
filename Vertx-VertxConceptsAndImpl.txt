@@ -570,18 +570,1015 @@ public class HelloWorldVerticleMain extends AbstractVerticle {
     vertx.deployVerticle(new GreeterVerticle());
   }
 }
+********************************************************************************************
+Vertx Handlers - Event Handlers:
+................................
+
+Vertx Event Handlers can be in written in two ways
+
+1.Future && Promise Pattern
+2.Reactive Pattern - RxJava2
+
+if you come from java script && node.js background,you know the concept called "Callback
+function" - callback function is other wise called as "listener function" and "handler function".
+
+1.Handler functions are not called by developers directly like other functions.
+2.Handlers functions are called by a thread "Event Loop".
+3.Handler functions are available inside Event Queue as passive instruction.
+4.Once async operation(task-database connnection) is completed, os triggers event, along with event, data, and its   handler is pushed into event queue, event loop starts processing.
+
+
+The result of async opertion could be either success or failure
+
+*********************************************************************************************
+
+Future Interface 
+				AsyncResult       Handler
+				-------------------------
+					   |
+				         Future
+
+
+CallBack programming : without async implementation:
+...................................................
+
+Future is interface , encapsulate response(Success/failure), we need to create Object 
+for "Future" implementation
+ Future f = Future.future() // create FutureImpl object
+
+Two major api for response:
+
+
+1.complete()  and complete(T result) =>Success Response, encasulated inside this api
+
+2.fail(String failureMessage) and fail(Throwable cause) =>Failure response, encapsulate
+ inside this api.
+    
+
+Handler apis for handling response;
+...................................
+
+1.succeeded() : empty response
+2.default Future<T> setHandler(Handler<AsyncResult<T>> handler)
+3.default Future<T> onComplete(Handler<AsyncResult<T>> handler)
+4.onSuccess
+5.onFailure
+
+
+  AsyncResult interface apis
+
+   -result() - get the success result sent by Future
+   -cause()   -get the failure result sent by Future
+   -succeed() -test whether it was success or failure
+   -failed()  -test whether it was failure or success
+
+
+package com.unisys.vertx.handlers.future;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.Future;
+import io.vertx.core.Handler;
+import io.vertx.example.util.Runner;
+
+//Future Demo :
+class BasicFutureVerticle extends AbstractVerticle {
+
+  //various way of sending success and failure response
+
+  //way 1 : sending empty  success response
+  public Future<Void> getEmptyFuture() {
+    //Create Future Object
+    Future future = Future.future();
+    //send empty response
+    future.complete();
+    //future
+    return future;
+  }
+
+  //Sending Response , Response type could be any thing from primitive to Objects,lists,arrays,json
+  public Future<String> getDataFuture() {
+    //Create Future Object
+    Future future = Future.future();
+    //declare fake response
+    String message = "Hello,How are you!,I am coming from Future";
+    future.complete(message);
+    //future
+    return future;
+  }
+
+  //Sending failure Response :  String message /Throwable Instance
+  public Future<String> getErrorMessage() {
+    //Create Future Object
+    Future future = Future.future();
+    //declare fake response
+    String errorMessage = "Sorry,Something went Wrong!!!";
+    future.fail(errorMessage);
+    //future
+    return future;
+  }
+
+  //Success and failure based biz logic
+
+  public Future<String> auth(String userName, String password) {
+    //Create Future Object
+    Future future = Future.future();
+    //biz logic
+    if (userName.equals("admin") && password.equals("admin")) {
+      future.complete("Login Success!!!");
+    } else {
+      future.fail("Login failed!!!!");
+    }
+
+    //future
+    return future;
+  }
+
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    System.out.println("Future Verticle is ready!!");
+    Future future = null;
+
+    //grab empty response :Handlers api
+    future = getEmptyFuture();
+    if (future.succeeded()) {
+      System.out.println("Future is success");
+    } else {
+      System.out.println("Future is failed!");
+    }
+    //Grab data response : Handlers api
+    future = getDataFuture();
+    //old style
+    future.setHandler(new Handler<AsyncResult>() {
+      @Override
+      public void handle(AsyncResult asyncResult) {
+        //test success or failure
+        if (asyncResult.succeeded()) {
+          //grab result
+          System.out.println(asyncResult.result());
+        } else {
+          System.out.println(asyncResult.cause());
+        }
+
+      }
+    });
+    ////lambda + setHandler / onComplete + fluent pattern
+    getDataFuture().setHandler(asyncResult -> {
+      if (asyncResult.succeeded()) {
+        //grab result
+        System.out.println(asyncResult.result());
+      } else {
+        System.out.println(asyncResult.cause());
+      }
+    });
+    getDataFuture().onComplete(asyncResult -> {
+      if (asyncResult.succeeded()) {
+        //grab result
+        System.out.println(asyncResult.result());
+      } else {
+        System.out.println(asyncResult.cause());
+      }
+    });
+    //Failure Resonse
+    getErrorMessage().onComplete(asyncResult -> {
+      if (asyncResult.failed()) {
+        System.out.println(asyncResult.cause().getMessage());
+      } else {
+
+      }
+    });
+
+    //biz logic
+    auth("admin", "admin").onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+    auth("foo", "admin").onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+    //only success
+    //getDataFuture().onSuccess(result-> System.out.println(result));
+    getDataFuture().onSuccess(System.out::println);
+    getErrorMessage().onFailure(System.out::println);
+
+  }
+}
+
+
+public class BasicHanldersUsingFuture extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(BasicHanldersUsingFuture.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new BasicFutureVerticle());
+  }
+}
+**********************************************************************************************
+Promise:
+
+Promise is async abstraction largly promoted by javascript community.
+Dont Compare js javascript with Vertx Promise.
+
+Promise is semantically meaningfull abstraction for handling asyn results.
+
+Many times developers confuse with java Fututre and Vertx Future.
+
+Promises can't be processed directly with onComplete/setHandler/OnSuccecc/onFailure apis
+
+if you want process, you have to convert "Promise to Future" again.
+
+promise conversion can be done when you process or promise conversion can be before process.
+
+
+Way 1 : return promise and convert future later
+
+  public Promise<Void> getEmptyPromise() {
+    //Create Promise Object
+    Promise promise = Promise.promise();
+    //send empty response
+    promise.complete();
+    //future
+    return promise;
+  }
+
+inside another api
+ boolean result = getEmptyPromise().future().succeeded();
+    if (result) {
+      System.out.println("Promise success!!!");
+    }
+
+
+Way 2: return promise and convert future in the api itself
+
+
+public Future<Void> getEmptyPromise() {
+    //Create Promise Object
+    Promise promise = Promise.promise();
+    //send empty response
+    promise.complete();
+    //future
+    return promise.future();
+  }
+
+boolean result = getEmptyPromise().succeeded();
+      if (result) {
+        System.out.println("Promise success!!!");
+      }
+
+
+Code:
+package com.unisys.vertx.handlers.promise;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.example.util.Runner;
+
+class PromiseVerticle extends AbstractVerticle {
+
+  // //way 1 : sending empty  success response
+//  public Promise<Void> getEmptyPromise() {
+//    //Create Promise Object
+//    Promise promise = Promise.promise();
+//    //send empty response
+//    promise.complete();
+//    //future
+//    return promise;
+//  }
+
+  public Future<Void> getEmptyPromise() {
+    //Create Promise Object
+    Promise promise = Promise.promise();
+    //send empty response
+    promise.complete();
+    //future
+    return promise.future();
+  }
+
+  //Sending Response , Response type could be any thing from primitive to Objects,lists,arrays,json
+  public Future<String> getDataPromise() {
+    //Create Promise Object
+    Promise promise = Promise.promise();
+    //declare fake response
+    String message = "Hello,How are you!,I am coming from Future";
+    promise.complete(message);
+    //future
+    return promise.future();
+  }
+
+  public Future<String> auth(String userName, String password) {
+    //Create Promise Object
+    Promise promise = Promise.promise();
+    //biz logic
+    if (userName.equals("admin") && password.equals("admin")) {
+      promise.complete("Login Success!!!");
+    } else {
+      promise.fail("Login failed!!!!");
+    }
+
+    //future
+    return promise.future();
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //handle empty promise
+//    boolean result = getEmptyPromise().future().succeeded();
+//    if (result) {
+//      System.out.println("Promise success!!!");
+//    }
+    boolean result = getEmptyPromise().succeeded();
+    if (result) {
+      System.out.println("Promise success!!!");
+    }
+    getDataPromise().onComplete(ar -> {
+      System.out.println(ar.result());
+    });
+    getDataPromise().onComplete(ar -> {
+      System.out.println(ar.result());
+    });
+    getDataPromise().onSuccess(System.out::println);
+
+    auth("admin", "admin").onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+    auth("foo", "admin").onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+  }
+}
+
+
+public class BasicPromiseVerticleMain extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(BasicPromiseVerticleMain.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new PromiseVerticle());
+  }
+}
+**********************************************************************************************
+ 
+Legacy Application flow : sync
+  
+  connect db - connect()
+  Query results -queryResult()
+  Formate results -formateResult()
+  add results into http response stream - writeresults
+  send/flush the results to clients - sendresponse
+
+Nested Callback : Callback chaining:
+  Handler function is called callback
+
+"The out put of one callback is input to the another callback
+
+   cb1
+     --cb2
+         -cb3
+            --cbN
+
+package com.unisys.vertx.handlers.promise;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.example.util.Runner;
+
+class CallbackNestingVerticle extends AbstractVerticle {
+
+  //getUser
+  public Future<String> getUser() {
+    Promise promise = Promise.promise();
+    //biz logic
+    String fakeUser = "Subramanian";
+    if (fakeUser != null) {
+      promise.complete(fakeUser);
+    } else {
+      promise.fail("User Not Found!!");
+    }
+
+    return promise.future();
+  }
+
+  //login
+  public Future<String> login(String userName) {
+    Promise promise = Promise.promise();
+    //biz logic
+    if (userName.equals("Subramanian")) {
+      promise.complete("Login success ");
+    } else {
+      promise.fail("Login failed!!");
+    }
+
+    return promise.future();
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //Call getUser
+    getUser().onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println("getUser Method : " + ar.result());
+        //call login methods
+        login(ar.result()).onComplete(lar -> {
+          //test login success
+          if (lar.succeeded()) {
+            System.out.println("Login Method :" + lar.result());
+          } else {
+            System.out.println(lar.cause().getMessage());
+          }
+        });
+      } else {
+        System.out.println(ar.cause());
+      }
+    });
+
+  }
+}
+
+
+public class NestedCallbackUsingPromises extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(NestedCallbackUsingPromises.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new CallbackNestingVerticle());
+  }
+}
+*******************************************************************************************
+
+Task:
+ Add one function , which has to verify , that login status "loginSucess", if login success
+ show message "Permium Page" else "Guest Page"
+ 
+
+********************************************************************************************
+
+Nested Callback without onComplete/setHandler:
+
+ class NestedCallbackWithouOnComplete extends AbstractVerticle {
+
+  //passing handler function as parameter : no need to promise/future
+  public void getUser(Handler<AsyncResult<String>> aHandler) {
+    String fakeUser = "Subramanian";
+    //biz logic
+    if (fakeUser != null) {
+      //handle success
+      aHandler.handle(Future.succeededFuture(fakeUser));
+    } else {
+      aHandler.handle(Future.failedFuture("No User Found"));
+    }
+  }
+
+  public void login(String userName, Handler<AsyncResult<String>> aHandler) {
+    //biz logic
+    if (userName.equals("Subramanian")) {
+      //handle success
+      aHandler.handle(Future.succeededFuture("Login Success"));
+    } else {
+      aHandler.handle(Future.failedFuture("Login failed"));
+    }
+  }
+
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //function as parameter : callback function
+    getUser(ar -> {
+      if (ar.succeeded()) {
+        System.out.println("Get User Method");
+        login(ar.result(), lar -> {
+          if (lar.succeeded()) {
+            System.out.println(lar.result());
+          } else {
+            System.out.println(lar.cause());
+          }
+        });
+
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+  }
+}
+******************************************************************************************
+
+callback Hell:
+
+
+    getUser().onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println("getUser Method : " + ar.result());
+        //call login methods
+        login(ar.result()).onComplete(lar -> {
+          //test login success
+          if (lar.succeeded()) {
+            System.out.println("Login Method :" + lar.result());
+          } else {
+            System.out.println(lar.cause().getMessage());
+          }
+        });
+      } else {
+        System.out.println(ar.cause());
+      }
+    });
+
+
+ getUser(ar -> {
+      if (ar.succeeded()) {
+        System.out.println("Get User Method");
+        login(ar.result(), lar -> {
+          if (lar.succeeded()) {
+            System.out.println(lar.result());
+          } else {
+            System.out.println(lar.cause());
+          }
+        });
+
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+
+Look at the above code , ask your self
+
+1.is it easy to understand?
+2.is it easy to scale
+3.is it easy to maintain
+
+No!......This is  what we call is "callback hell".
+
+foo.a(1, res1 -> {
+  if (res1.succeeded()) {
+    bar.b("abc", 1, res2 -> {
+      if (res.succeeded()) {
+         baz.c(res3 -> {
+           dosomething(res1, res2, res3, res4 -> {
+               // (...)
+           });
+         });
+      }
+    });
+  }
+});
+
+can we escape from callback hell problem, how to write better callback based programming?
+
+Yes! 
+
+Vertx provides solution : compose
 
 
 
+package com.unisys.vertx.handlers.promise;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.example.util.Runner;
+
+
+class ComplexCallbackVerticle extends AbstractVerticle {
+
+  //prepareDatabase
+  public Future<Void> prepareDatabase() {
+    System.out.println("PrepareDatabase is called");
+    Promise promise = Promise.promise();
+    promise.complete();
+    return promise.future();
+  }
+
+  //startHttpDatabase
+  public Future<Void> startHttpServer() {
+    System.out.println("startHttpServer is called");
+    Promise promise = Promise.promise();
+    promise.complete();
+    return promise.future();
+  }
+
+  public Future<Void> startWebContainer() {
+    System.out.println("startWebContainer is called");
+    Promise promise = Promise.promise();
+    promise.complete();
+    return promise.future();
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //callback based : callback hell
+    prepareDatabase().onComplete(ar -> {
+      if (ar.succeeded()) {
+        startHttpServer().onComplete(httpar -> {
+          if (httpar.succeeded()) {
+            startWebContainer().onComplete(web -> {
+              if (web.succeeded()) {
+                System.out.println("All Server is Ready!");
+              }
+            });
+          }
+
+        });
+      }
+    });
+    //compose : avoiding callback hell
+    prepareDatabase().compose(handler -> startHttpServer()).compose(web -> startWebContainer()).onComplete(status -> {
+      if (status.succeeded()) {
+        System.out.println("All Server : Compose is Ready!");
+      }
+    });
+    prepareDatabase().compose(handler -> startHttpServer()).compose(web -> startWebContainer()).onComplete(status -> {
+      if (status.succeeded()) {
+        System.out.println("All Server : Compose is Ready!");
+      }
+    });
+
+  }
+}
+
+
+public class CallbackHelloSolution extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(CallbackHelloSolution.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new ComplexCallbackVerticle());
+  }
+}
+******************************************************************************************
+
+package com.unisys.vertx.handlers.promise;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.example.util.Runner;
+
+
+class HelloMessageCompose extends AbstractVerticle {
+
+
+  public Future<String> sayWorld() {
+    System.out.println("Sayworld is called");
+    Promise promise = Promise.promise();
+    promise.complete("World");
+    return promise.future();
+  }
+
+  public Future<String> sayHello(String world) {
+    System.out.println("SayHello is called");
+    Promise promise = Promise.promise();
+    promise.complete("Hello" + world);
+    return promise.future();
+  }
+
+  public Future<String> sayError() {
+    System.out.println("say Error is called");
+    Promise promise = Promise.promise();
+    promise.fail("failure message");
+    return promise.future();
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+//    sayWorld().onComplete(ar -> {
+//      if (ar.succeeded()) {
+//        sayHello(ar.result()).onComplete(h -> {
+//          System.out.println(h.result());
+//        });
+//      }
+//    });
+//    sayError().compose(s -> sayWorld()).compose(m -> sayHello(m)).onComplete(ar -> {
+//      if (ar.succeeded()) {
+//        System.out.println(ar.result());
+//      } else {
+//        System.out.println(ar.cause().getMessage());
+//      }
+//    });
+
+    sayWorld().compose(s -> sayError()).compose(m -> sayHello(m)).onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+  }
+}
+
+
+class ComplexCallbackVerticle extends AbstractVerticle {
+
+  //prepareDatabase
+  public Future<Void> prepareDatabase() {
+    System.out.println("PrepareDatabase is called");
+    Promise promise = Promise.promise();
+    promise.complete();
+    return promise.future();
+  }
+
+  //startHttpDatabase
+  public Future<Void> startHttpServer() {
+    System.out.println("startHttpServer is called");
+    Promise promise = Promise.promise();
+    // promise.fail("Http Server is broken");
+    promise.complete();
+    return promise.future();
+  }
+
+  public Future<Void> startWebContainer() {
+    System.out.println("startWebContainer is called");
+    Promise promise = Promise.promise();
+    promise.complete();
+    return promise.future();
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //callback based : callback hell
+//    prepareDatabase().onComplete(ar -> {
+//      if (ar.succeeded()) {
+//        startHttpServer().onComplete(httpar -> {
+//          if (httpar.succeeded()) {
+//            startWebContainer().onComplete(web -> {
+//              if (web.succeeded()) {
+//                System.out.println("All Server is Ready!");
+//              }
+//            });
+//          }
+//
+//        });
+//      }
+//    });
+    //compose : avoiding callback hell
+//    prepareDatabase().compose(handler -> startHttpServer()).compose(web -> startWebContainer()).onComplete(status -> {
+//      if (status.succeeded()) {
+//        System.out.println("All Server : Compose is Ready!");
+//      }
+//    });
+    prepareDatabase().compose(handler -> startHttpServer()).compose(web -> startWebContainer()).onComplete(status -> {
+      if (status.succeeded()) {
+        System.out.println("All Server : Compose is Ready!");
+      } else {
+        System.out.println(status.cause().getMessage());
+
+      }
+    });
+
+  }
+}
+
+
+public class CallbackHelloSolution extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(CallbackHelloSolution.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new ComplexCallbackVerticle());
+    // vertx.deployVerticle(new HelloMessageCompose());
+  }
+}
+*********************************************************************************************
+Compose method can used for chaining futures(so sequential compostion)
+
+********************************************************************************************
+
+Concurrent Composition:
+  It Supports Concurrent Composition(running serverl async operations in parrall) and
+sequential composition(chaining)
+
+Implementation:
+
+CompositeFuture.all ,CompositeFuture.any,CompositeFuture.join
+*******************************************************************************************
+
+Entering into async programming:
+................................
+
+How to async code?
+
+ async code is code which is to be scheduled in os kernal space and processed by event loops.
+
+How to identify the code is async?
+
+ Vertx Provides a high level async apis for building application.
+
+Async api classification:
+
+1.Timer api
+2.File System
+3.HTTP api
+4.TCP/ip api
+5.Database drivers api - jdbc,mongo...
+
+etc...........
+These apis are given inside vertx as modules.
+
+All async implementations are part of vertx Instance.
+
+vertx.
 
 
 
+package com.unisys.vertx.async.timer;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.example.util.Runner;
+
+import java.util.Date;
+
+class Timer extends AbstractVerticle {
+
+  //delay
+  private Future<String> delay(long timer, String message) {
+    Promise promise = Promise.promise();
+    //return result after some time
+    //Async code : once timeout , completes
+    vertx.setTimer(timer, handler -> {
+      //you wrap async result : send result after delay
+      promise.complete(message);
+    });
+
+    return promise.future();
+  }
+
+  //call for every one sec
+  private Future<String> heartBeat() {
+    Promise promise = Promise.promise();
+    //return result after some time
+    vertx.setPeriodic(1000, ar -> {
+      // promise.complete(new Date().toString());
+      System.out.println(new Date().toString());
+    });
+
+    return promise.future();
+  }
+
+  ;
 
 
+  @Override
+  public void start() throws Exception {
+    super.start();
+
+    System.out.println("start");
+    delay(1000, "Hey, I am delayed ").onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+    delay(2000, "Hey, I am delayed ").onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+    delay(5000, "Hey, I am delayed ").onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+
+    heartBeat().onComplete(ar -> {
+      if (ar.succeeded()) {
+        System.out.println(ar.result());
+      } else {
+        System.out.println(ar.cause().getMessage());
+      }
+    });
+    System.out.println("end");
+
+  }
+}
 
 
+public class TimerAsyncMain extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(TimerAsyncMain.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new Timer());
+  }
+}
+**********************************************************************************************
+Vertx is good for non blocking application.
+Vertx is good for non blocking io application.
+
+IO :
+ IO is every Where.
+Every pl , traditionally blocking io.
+Vertx offers nonblocking io  / async io : io operations never block current process,to be scheduled separatelly.
+
+Types of io:
+1.file system io  - read,write from disk files
+2.Networking io -  http,tcp/ip,dns,datagram....
+3.Database io
 
 
+File System Api:
+................
+package com.unisys.vertx.async.fs;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.file.FileSystem;
+import io.vertx.example.util.Runner;
+
+
+class FileServiceVerticle extends AbstractVerticle {
+
+  private Future<String> readFile() {
+    Promise promise = Promise.promise();
+    //Async file read operation
+    FileSystem fs = vertx.fileSystem();
+    fs.readFile("assets/hello.txt", fileHandler -> {
+      if (fileHandler.succeeded()) {
+        System.out.println("File is ready!");
+        promise.complete(fileHandler.result().toString());
+      } else {
+        promise.fail(fileHandler.cause());
+      }
+    });
+
+
+    return promise.future();
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    System.out.println("Start");
+    readFile().onComplete(far -> {
+      if (far.succeeded()) {
+        System.out.println(far.result());
+      } else {
+        System.out.println(far.cause().getMessage());
+      }
+    });
+    System.out.println("end");
+  }
+}
+
+
+public class FileSystemMain extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(FileSystemMain.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new FileServiceVerticle());
+  }
+}
 
 
 

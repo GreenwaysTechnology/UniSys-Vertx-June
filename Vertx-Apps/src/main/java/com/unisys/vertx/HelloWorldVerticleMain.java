@@ -46,7 +46,17 @@ public class HelloWorldVerticleMain extends AbstractVerticle {
   public void start() throws Exception {
     super.start();
     vertx.deployVerticle(new HelloWorldVerticle());
-    vertx.deployVerticle(new GreeterVerticle());
+    vertx.deployVerticle(new GreeterVerticle(),ar -> {
+      if(ar.succeeded()){
+        vertx.undeploy(ar.result(), res -> {
+          if (res.succeeded()) {
+            System.out.println("Undeployed ok");
+          } else {
+            System.out.println("Undeploy failed!");
+          }
+        });
+      }
+    });
   }
 }
 
