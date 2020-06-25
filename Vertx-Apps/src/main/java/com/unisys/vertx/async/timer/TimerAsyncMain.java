@@ -1,8 +1,6 @@
 package com.unisys.vertx.async.timer;
 
-import io.vertx.core.AbstractVerticle;
-import io.vertx.core.Future;
-import io.vertx.core.Promise;
+import io.vertx.core.*;
 import io.vertx.example.util.Runner;
 
 import java.util.Date;
@@ -23,18 +21,12 @@ class Timer extends AbstractVerticle {
   }
 
   //call for every one sec
-  private Future<String> heartBeat() {
-    Promise promise = Promise.promise();
+  private void heartBeat(Handler<AsyncResult<String>> aHandler) {
     //return result after some time
     vertx.setPeriodic(1000, ar -> {
-//       promise.c(new Date().toString());
-      System.out.println(new Date().toString());
+      aHandler.handle(Future.succeededFuture(new Date().toString()));
     });
-
-    return promise.future();
   }
-
-  ;
 
 
   @Override
@@ -64,14 +56,9 @@ class Timer extends AbstractVerticle {
       }
     });
 
-    heartBeat().onComplete(ar -> {
-      if (ar.succeeded()) {
-        System.out.println("Result" + ar.result());
-      } else {
-        System.out.println(ar.cause().getMessage());
-      }
+    heartBeat(handler -> {
+      System.out.println(handler.result());
     });
-    System.out.println("end");
 
   }
 }
