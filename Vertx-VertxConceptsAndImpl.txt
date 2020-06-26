@@ -2780,6 +2780,3013 @@ public class RESTDataAccess extends AbstractVerticle {
     vertx.deployVerticle(new AppController());
   }
 }
+**********************************************************************************************
+Connecting with realtional database, templates:
+...............................................
+
+FreeMarker template Engine
+JDBC - HSQL DB
+vertx-Web - routing
+
+Depedencies
+<dependency>
+ <groupId>io.vertx</groupId>
+ <artifactId>vertx-jdbc-client</artifactId>
+ <version>3.9.1</version>
+</dependency>
+
+    <dependency>
+      <groupId>com.github.rjeschke</groupId>
+      <artifactId>txtmark</artifactId>
+      <version>0.13</version>
+    </dependency>
+
+   <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>2.0.0-alpha1</version>
+    </dependency>
+    <dependency>
+      <groupId>org.hsqldb</groupId>
+      <artifactId>hsqldb</artifactId>
+      <version>2.5.0</version>
+    </dependency>
+ <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-web-templ-freemarker</artifactId>
+    </dependency>
+
+
+*********************************************************************************************
+
+Database
+WebServer
+
+start(Promise promise)
+ deploy ----start completion ensures, that deployment is over
+ inside start, you are initalizing some non blocking resources, starting db,populating data
+ staring http servers which may be waiting for some resources
+
+what if start has completed, but still http or db not ready, then it will create inconsistency
+
+dont confirm the start method completion until, all resources are initalized.
+
+use start overloaded promise version.
+
+
+Basic Template Version:
+package com.unisys.vertx.web.dataacces;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.http.HttpServer;
+import io.vertx.core.json.JsonObject;
+import io.vertx.example.util.Runner;
+import io.vertx.ext.jdbc.JDBCClient;
+import io.vertx.ext.web.Router;
+import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.templ.freemarker.FreeMarkerTemplateEngine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import io.vertx.ext.sql.SQLConnection;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+class BlogVerticle extends AbstractVerticle {
+
+  //sql statements
+  private static final String SQL_CREATE_PAGES_TABLE = "create table if not exists Pages (Id integer identity primary key, Name varchar(255) unique, Content clob)";
+  private static final String SQL_GET_PAGE = "select Id, Content from Pages where Name = ?"; // <1>
+  private static final String SQL_CREATE_PAGE = "insert into Pages values (NULL, ?, ?)";
+  private static final String SQL_SAVE_PAGE = "update Pages set Content = ? where Id = ?";
+  private static final String SQL_ALL_PAGES = "select Name from Pages";
+  private static final String SQL_DELETE_PAGE = "delete from Pages where Id = ?";
+
+  //jdbc driver
+  private JDBCClient dbClient;
+  //Logger
+  private static final Logger LOGGER = LoggerFactory.getLogger(BlogVerticle.class);
+
+  //Template Engine referece
+  private FreeMarkerTemplateEngine templateEngine;
+
+
+  //initialize the database and create initial table
+  private Future<Void> prepareDatabase() {
+
+    Promise<Void> promise = Promise.promise();
+
+    //connection information
+    dbClient = JDBCClient.createShared(vertx, new JsonObject()  // <1>
+      .put("url", "jdbc:hsqldb:file:db/wiki")   // <2>
+      .put("driver_class", "org.hsqldb.jdbcDriver")   // <3>
+      .put("max_pool_size", 30));   // <4>
+
+    //db inital setup
+    dbClient.getConnection(ar -> {    // <5>
+      if (ar.failed()) {
+        LOGGER.error("Could not open a database connection", ar.cause());
+        promise.fail(ar.cause());    // <6>
+
+      } else {
+        SQLConnection connection = ar.result();   // <7>
+
+        connection.execute(SQL_CREATE_PAGES_TABLE, create -> {
+          connection.close();   // <8>
+          if (create.failed()) {
+            LOGGER.error("Database preparation error", create.cause());
+            promise.fail(create.cause());
+          } else {
+            promise.complete();  // <9>
+          }
+        });
+      }
+    });
+
+    return promise.future();
+  }
+
+  ///Handlers
+  private void indexHandler(RoutingContext context) {
+
+    dbClient.getConnection(car -> {
+      if (car.succeeded()) {
+        SQLConnection connection = car.result();
+
+        connection.query(SQL_ALL_PAGES, res -> {
+          connection.close();
+
+          if (res.succeeded()) {
+            //java streams -replace with RX-JAVA improve performance
+            List<String> pages = res.result() // <1>
+              .getResults()
+              .stream()
+              .map(json -> json.getString(0))
+              .sorted()
+              .collect(Collectors.toList());
+
+            //this will be accessed inside
+            context.put("title", "Unisys Wiki home");  // <2>
+            context.put("pages", pages);
+
+            templateEngine.render(context.data(), "templates/index.ftl", ar -> {   // <3>
+              if (ar.succeeded()) {
+                context.response().putHeader("Content-Type", "text/html");
+                context.response().end(ar.result());  // <4>
+              } else {
+                context.fail(ar.cause());
+              }
+            });
+
+          } else {
+            context.fail(res.cause());  // <5>
+          }
+        });
+      } else {
+        context.fail(car.cause());
+      }
+    });
+  }
+
+
+  private Future<Void> startHttpServer() {
+    Promise<Void> promise = Promise.promise();
+
+    HttpServer server = vertx.createHttpServer();   // <1>
+    Router router = Router.router(vertx);   // <2>
+
+    router.get("/").handler(this::indexHandler);
+//    router.get("/wiki/:page").handler(this::pageRenderingHandler); // <3>
+//    router.post().handler(BodyHandler.create());  // <4>
+//    router.post("/save").handler(this::pageUpdateHandler);
+//    router.post("/create").handler(this::pageCreateHandler);
+//    router.post("/delete").handler(this::pageDeletionHandler);
+
+    templateEngine = FreeMarkerTemplateEngine.create(vertx);
+
+    server
+      .requestHandler(router)   // <5>
+      .listen(3001, ar -> {   // <6>
+        if (ar.succeeded()) {
+          LOGGER.info("HTTP server running on port 8080");
+          promise.complete();
+        } else {
+          LOGGER.error("Could not start a HTTP server", ar.cause());
+          promise.fail(ar.cause());
+        }
+      });
+
+    return promise.future();
+  }
+
+
+  @Override
+  public void start(Promise<Void> promise) throws Exception {
+    super.start();
+    Future<Void> steps = prepareDatabase().compose(v -> startHttpServer());
+    //ensure here start now can complete
+    steps.onComplete(promise);
+
+  }
+}
+
+
+public class DyanmicWebApp extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(DyanmicWebApp.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new BlogVerticle());
+  }
+}
+*******************************************************************************************
+package com.unisys.vertx.web.dataacces;
+
+import com.github.rjeschke.txtmark.Processor;
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.http.HttpServer;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
+import io.vertx.example.util.Runner;
+import io.vertx.ext.jdbc.JDBCClient;
+import io.vertx.ext.web.Router;
+import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.handler.BodyHandler;
+import io.vertx.ext.web.templ.freemarker.FreeMarkerTemplateEngine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import io.vertx.ext.sql.SQLConnection;
+
+import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
+
+class BlogVerticle extends AbstractVerticle {
+
+  //sql statements
+  private static final String SQL_CREATE_PAGES_TABLE = "create table if not exists Pages (Id integer identity primary key, Name varchar(255) unique, Content clob)";
+  private static final String SQL_GET_PAGE = "select Id, Content from Pages where Name = ?"; // <1>
+  private static final String SQL_CREATE_PAGE = "insert into Pages values (NULL, ?, ?)";
+  private static final String SQL_SAVE_PAGE = "update Pages set Content = ? where Id = ?";
+  private static final String SQL_ALL_PAGES = "select Name from Pages";
+  private static final String SQL_DELETE_PAGE = "delete from Pages where Id = ?";
+
+  //jdbc driver
+  private JDBCClient dbClient;
+  //Logger
+  private static final Logger LOGGER = LoggerFactory.getLogger(BlogVerticle.class);
+
+  //Template Engine referece
+  private FreeMarkerTemplateEngine templateEngine;
+
+
+  //initialize the database and create initial table
+  private Future<Void> prepareDatabase() {
+
+    Promise<Void> promise = Promise.promise();
+
+    //connection information
+    dbClient = JDBCClient.createShared(vertx, new JsonObject()  // <1>
+      .put("url", "jdbc:hsqldb:file:db/wiki")   // <2>
+      .put("driver_class", "org.hsqldb.jdbcDriver")   // <3>
+      .put("max_pool_size", 30));   // <4>
+
+    //db inital setup
+    dbClient.getConnection(ar -> {    // <5>
+      if (ar.failed()) {
+        LOGGER.error("Could not open a database connection", ar.cause());
+        promise.fail(ar.cause());    // <6>
+
+      } else {
+        SQLConnection connection = ar.result();   // <7>
+
+        connection.execute(SQL_CREATE_PAGES_TABLE, create -> {
+          connection.close();   // <8>
+          if (create.failed()) {
+            LOGGER.error("Database preparation error", create.cause());
+            promise.fail(create.cause());
+          } else {
+            promise.complete();  // <9>
+          }
+        });
+      }
+    });
+
+    return promise.future();
+  }
+
+  ///Handlers
+  private void indexHandler(RoutingContext context) {
+
+    dbClient.getConnection(car -> {
+      if (car.succeeded()) {
+        SQLConnection connection = car.result();
+
+        connection.query(SQL_ALL_PAGES, res -> {
+          connection.close();
+
+          if (res.succeeded()) {
+            //java streams -replace with RX-JAVA improve performance
+            List<String> pages = res.result() // <1>
+              .getResults()
+              .stream()
+              .map(json -> json.getString(0))
+              .sorted()
+              .collect(Collectors.toList());
+
+            //this will be accessed inside
+            context.put("title", "Unisys Wiki home");  // <2>
+            context.put("pages", pages);
+
+            templateEngine.render(context.data(), "templates/index.ftl", ar -> {   // <3>
+              if (ar.succeeded()) {
+                context.response().putHeader("Content-Type", "text/html");
+                context.response().end(ar.result());  // <4>
+              } else {
+                context.fail(ar.cause());
+              }
+            });
+
+          } else {
+            context.fail(res.cause());  // <5>
+          }
+        });
+      } else {
+        context.fail(car.cause());
+      }
+    });
+  }
+
+  private static final String EMPTY_PAGE_MARKDOWN =
+    "# A new page\n" +
+      "\n" +
+      "Feel-free to write in Markdown!\n";
+
+  private void pageRenderingHandler(RoutingContext context) {
+    String page = context.request().getParam("page");   // <1>
+
+    dbClient.getConnection(car -> {
+      if (car.succeeded()) {
+
+        SQLConnection connection = car.result();
+        connection.queryWithParams(SQL_GET_PAGE, new JsonArray().add(page), fetch -> {  // <2>
+          connection.close();
+          if (fetch.succeeded()) {
+
+            JsonArray row = fetch.result().getResults()
+              .stream()
+              .findFirst()
+              .orElseGet(() -> new JsonArray().add(-1).add(EMPTY_PAGE_MARKDOWN));
+            Integer id = row.getInteger(0);
+            String rawContent = row.getString(1);
+
+            context.put("title", page);
+            context.put("id", id);
+            context.put("newPage", fetch.result().getResults().size() == 0 ? "yes" : "no");
+            context.put("rawContent", rawContent);
+            context.put("content", Processor.process(rawContent));  // <3>
+            context.put("timestamp", new Date().toString());
+
+            templateEngine.render(context.data(), "templates/page.ftl", ar -> {
+              if (ar.succeeded()) {
+                context.response().putHeader("Content-Type", "text/html");
+                context.response().end(ar.result());
+              } else {
+                context.fail(ar.cause());
+              }
+            });
+          } else {
+            context.fail(fetch.cause());
+          }
+        });
+
+      } else {
+        context.fail(car.cause());
+      }
+    });
+  }
+
+  //RoutingContext ---which encasulate -HttpRequest Object and HttpResponse
+  private void pageUpdateHandler(RoutingContext context) {
+    //getParam - to read url params /id ?id
+    String id = context.request().getParam("id");   // <1>
+    String title = context.request().getParam("title");
+    String markdown = context.request().getParam("markdown");
+
+    boolean newPage = "yes".equals(context.request().getParam("newPage"));  // <2>
+
+    dbClient.getConnection(car -> {
+      if (car.succeeded()) {
+        SQLConnection connection = car.result();
+        String sql = newPage ? SQL_CREATE_PAGE : SQL_SAVE_PAGE;
+        JsonArray params = new JsonArray();   // <3>
+        if (newPage) {
+          params.add(title).add(markdown);
+        } else {
+          params.add(markdown).add(id);
+        }
+        connection.updateWithParams(sql, params, res -> {   // <4>
+          connection.close();
+          if (res.succeeded()) {
+            context.response().setStatusCode(303);    // <5>
+            context.response().putHeader("Location", "/wiki/" + title);
+            context.response().end();
+          } else {
+            context.fail(res.cause());
+          }
+        });
+      } else {
+        context.fail(car.cause());
+      }
+    });
+  }
+
+  private void pageCreateHandler(RoutingContext context) {
+    String pageName = context.request().getParam("name");
+    String location = "/wiki/" + pageName;
+    if (pageName == null || pageName.isEmpty()) {
+      location = "/";
+    }
+    context.response().setStatusCode(303);
+    context.response().putHeader("Location", location);
+    context.response().end();
+  }
+
+  private void pageDeletionHandler(RoutingContext context) {
+    String id = context.request().getParam("id");
+    dbClient.getConnection(car -> {
+      if (car.succeeded()) {
+        SQLConnection connection = car.result();
+        connection.updateWithParams(SQL_DELETE_PAGE, new JsonArray().add(id), res -> {
+          connection.close();
+          if (res.succeeded()) {
+            context.response().setStatusCode(303);
+            context.response().putHeader("Location", "/");
+            context.response().end();
+          } else {
+            context.fail(res.cause());
+          }
+        });
+      } else {
+        context.fail(car.cause());
+      }
+    });
+  }
+
+  private Future<Void> startHttpServer() {
+    Promise<Void> promise = Promise.promise();
+
+    HttpServer server = vertx.createHttpServer();   // <1>
+    Router router = Router.router(vertx);   // <2>
+
+    router.get("/").handler(this::indexHandler);
+    router.get("/wiki/:page").handler(this::pageRenderingHandler); // <3>
+    router.post().handler(BodyHandler.create());  // <4>
+    router.post("/save").handler(this::pageUpdateHandler);
+    router.post("/create").handler(this::pageCreateHandler);
+    router.post("/delete").handler(this::pageDeletionHandler);
+
+    templateEngine = FreeMarkerTemplateEngine.create(vertx);
+
+    server
+      .requestHandler(router)   // <5>
+      .listen(3001, ar -> {   // <6>
+        if (ar.succeeded()) {
+          LOGGER.info("HTTP server running on port 8080");
+          promise.complete();
+        } else {
+          LOGGER.error("Could not start a HTTP server", ar.cause());
+          promise.fail(ar.cause());
+        }
+      });
+
+    return promise.future();
+  }
+
+
+  @Override
+  public void start(Promise<Void> promise) throws Exception {
+    super.start();
+    Future<Void> steps = prepareDatabase().compose(v -> startHttpServer());
+    //ensure here start now can complete
+    steps.onComplete(promise);
+
+  }
+}
+
+
+public class DyanmicWebApp extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(DyanmicWebApp.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new BlogVerticle());
+  }
+}
+********************************************************************************************
+
+Vertx + Hibernate
+
+ Verticle ----Hibernate
+ vertx.excuteBlocking(blh,res)
+   h.findAll()
+*************************************************************************************
+Micro service Architecture:
+...........................
+
+How to build distributed application?
+
+Developers:
+
+1.must code
+2.package
+3.automation
+   -deployments:
+         ->bare metal os
+         ->vm based 
+         ->cloud based
+MS - netflix
+     amzon
+     ................
+
+**********************************************************************************************
+
+Implementations :
+
+
+1.Application infrastructure Patterns
+
+Externalized configuration - includes credentials, and network locations of external services such as databases and message brokers
+Logging - configuring of a logging framework such as log4j or logback
+Health checks - a url that a monitoring service can “ping” to determine the health of the application
+Metrics - measurements that provide insight into what the application is doing and how it is performing
+Distributed tracing - instrument services with code that assigns each external request an unique identifier that is passed between services.
+
+*********************************************************************************************
+
+Application Configuration data.
+
+
+Vertx-config Module 
+
+1.Supports many formats like json,properties,yaml,hocon...
+2.Supports many stores  like filesystem,webservers,directories,git,redis....
+
+<dependency>
+ <groupId>io.vertx</groupId>
+ <artifactId>vertx-config</artifactId>
+ <version>3.9.1</version>
+</dependency 
+
+Configuration Stores(Storage):
+..............................
+
+Physical storage:
+
+1.files
+2.directories -ldap....
+3.HTTP Servers - a separate HTTP server.
+4.Redis
+5.System Properties
+6.environment properties
+
+In memory Store: Application memory
+
+Configuration via JSON objects, can be kept at memory.
+
+Storage file formats:
+1.yaml
+2.json
+3.properties
+......
+Concepts:
+
+1.How to process / read configurations
+
+Vertx Provides non blocking Object
+
+1.ConfigRetriever:
+
+  It configures a set of configuration store, where Configuration store defines  a location
+from where the configuration data is read and also format(JSON by default).
+
+ The Result from ConfigServer is JSON object.
+
+
+
+Flow
+
+  Application ------------------|ConfigRetriver----|ConfigStore
+				JSON Object	<----	
+
+
+How to instantiate the ConfigRetriver:
+
+ ConfigRetriver retriver = ConfigRetriver.create(vertx).
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+ConfigRetiver Object can be used to read from physical storage and also in memory.
+
+AbstractVerticle has an api called
+
+JSONObject config(); --this method interanally uses Builtin ConfigRetriver.
+
+ get("key","defaultValue") - to read values from the memory
+ put("key",value) - to store configuration data to verticles /application
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////////////////
+Order of config property retrival:
+
+1.The vertx Verticle config()
+2.The system properties
+3.The environment variables
+4.From the store what you have configurated
+/////////////////////////////////////////////////////////////////////////////////////////
+Implemetation:
+
+1.Type of Store
+  ->ConfigStoreOptions
+
+2.Create ConfigRetriver Object with ConfigStore options
+
+
+   <dependency>
+       <groupId>io.vertx</groupId>
+       <artifactId>vertx-config-yaml</artifactId>
+    </dependency>
+
+     <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-config</artifactId>
+    </dependency>
+
+
+
+1.create json file
+
+resources/application.json
+{
+  "application": {
+    "name": "Unisys Vertx Application",
+    "Version": "1.0.0",
+    "port": 3001
+  }
+}
+
+package com.unisys.vertx.microservice.config;
+
+import io.vertx.config.ConfigRetriever;
+import io.vertx.config.ConfigRetrieverOptions;
+import io.vertx.config.ConfigStoreOptions;
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.json.JsonObject;
+import io.vertx.example.util.Runner;
+
+
+class JSONFileSystemConfig extends  AbstractVerticle{
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //Config Store Options
+    //Add Storage options: type, format,file path
+    ConfigStoreOptions options = new ConfigStoreOptions();
+    options.setType("file");
+    // options.setFormat("json");
+    options.setConfig(new JsonObject().put("path", "application.json"));
+    ConfigRetriever retriever = ConfigRetriever.create(vertx, new ConfigRetrieverOptions().addStore(options));
+
+    retriever.getConfig(config -> {
+      if (config.succeeded()) {
+        System.out.println("Config is Ready");
+        //System.out.println(config.result());
+        JsonObject configRes = config.result();
+        System.out.println(configRes.getJsonObject("application").getString("name") );
+        System.out.println(configRes.getJsonObject("application").getInteger("port") );
+
+      } else {
+        System.out.println("Config Error : " + config.cause());
+      }
+    });
+
+  }
+}
+
+
+public class ConfigMainApp extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(ConfigMainApp.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new JSONFileSystemConfig());
+  }
+}
+****************************************************************************************
+Task : i want to create  WebServer, That should take port no, name,version details 
+from the application.json file,
+
+port should be used .
+ name and version information should be returned as response.
+********************************************************************************************
+class HttpServerWithConfig extends AbstractVerticle {
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //Config Store Options
+    //Add Storage options: type, format,file path
+    ConfigStoreOptions options = new ConfigStoreOptions();
+    options.setType("file");
+    // options.setFormat("json");
+    options.setConfig(new JsonObject().put("path", "application.json"));
+    ConfigRetriever retriever = ConfigRetriever.create(vertx, new ConfigRetrieverOptions().addStore(options));
+
+    retriever.getConfig(config -> {
+      if (config.succeeded()) {
+        System.out.println("Config is Ready");
+        //System.out.println(config.result());
+        JsonObject configRes = config.result();
+        System.out.println(configRes.getJsonObject("application").getString("name"));
+        System.out.println(configRes.getJsonObject("application").getInteger("port"));
+
+        vertx.createHttpServer().
+          requestHandler(res -> res.response().end(configRes.getJsonObject("application").getString("name")))
+          .listen(configRes.getJsonObject("application").getInteger("port"));
+
+      } else {
+        System.out.println("Config Error : " + config.cause());
+      }
+    });
+
+  }
+}
+
+How to read from YAML file?
+
+    <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-config-yaml</artifactId>
+    </dependency>
+    <dependency>
+
+resources/application.yaml
+
+name: "Ibm Vertx Application"
+port: 3000
+host: "localhost"
+service: "hello"
+api : "/greet"
+
+
+ConfigStoreOptions options = new ConfigStoreOptions();
+    options.setType("file");
+    options.setFormat("yaml");
+    options.setConfig(new JsonObject().put("path", "application.yaml"));
+    ConfigRetriever retriever = ConfigRetriever.create(vertx, new ConfigRetrieverOptions().addStore(options));
+
+
+
+   //YAML Reader
+    ConfigStoreOptions optionsYaml = new ConfigStoreOptions();
+    optionsYaml.setType("file");
+    optionsYaml.setFormat("yaml");
+    optionsYaml.setConfig(new JsonObject().put("path", "application.yaml"));
+    ConfigRetriever retrieverYaml = ConfigRetriever.create(vertx, new ConfigRetrieverOptions().addStore(optionsYaml));
+
+    retrieverYaml.getConfig(yamlProps -> {
+      System.out.println("Yaml Properties");
+      System.out.println((yamlProps.result()));
+      System.out.println(yamlProps.result().getInteger("port"));
+    });
+**********************************************************************************************
+
+what if i want to change properties dynamically during runtime, how to supply those properties
+
+retriever.listen(change->{
+ //old configur
+  JsonObject old =change.getpreviousConfiguration()
+  //new config
+  JsonObject new = change.getNewConfiguration()
+ //event bus
+})
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+Read configuration through config() mehtod of AbstractVerticle
+
+ config()--In memoroy configuration data 
+
+
+   config().put("foo","foovalue");
+    JsonObject localconfig = config();
+    System.out.println("Config method result" + localconfig.encodePrettily());
+
+
+src/main/conf/yourconfig.json
+
+Here also we can use config() method
+
+  java -jar target/yourapp.jar -conf src/main/conf/yourconfig.json
+********************************************************************************************
+
+Service Discovery :
+
+
+Service Interactions:
+....................
+
+In general micro service architectures, components communicate each other, for data exchange.
+
+
+Styles of communications
+1.Sync Communication
+  
+   Component(Service)---wait state--------talks to -------Component(Service)
+
+2.Async Communication
+
+  Component(Service)---No wait state--------talks to -------Component(Service)
+        --continue other work
+  - once Service2 is finished job, will trigger Comomponent 1.
+
+
+Sync Communication egs with respect to spring-cloud:
+....................................................
+
+1.Service a calls Service B --which is having data base calls.
+2.Service a calls Service B to compute some biz logic.
+
+
+
+AyncSync Communication egs with respect to spring-cloud:
+....................................................
+
+1.Service A --- calls Service B --which is having Message broker calls :RabbitMQ,Kaffa..
+
+2.Service A --makes http calls on B using "Spring-Webflux-Nonblocking" webservice service calls.
+
+Service A--http-Nonblocking---ServiceB---blockingCall---dbcalls
+
+Vertx is full blown non blocking architecture:
+if two services are communicating each other , they can exchange data, they need transport.
+
+-Vertx supports 
+
+ -non blocking http 
+ -non blocking tcp/ip using actor model-EventBus
+ -non blocking message integration technologies-rabbitmq....
+
+Non blocking http:
+
+ vertx-webclient
+
+<dependency>
+ <groupId>io.vertx</groupId>
+ <artifactId>vertx-web-client</artifactId>
+</dependency> 
+
+
+package com.unisys.vertx.microservice.webclient;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.buffer.Buffer;
+import io.vertx.example.util.Runner;
+import io.vertx.ext.web.client.HttpResponse;
+import io.vertx.ext.web.client.WebClient;
+
+class UserRestApi extends AbstractVerticle {
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //Create WebClient instance
+    WebClient client = WebClient.create(vertx);
+    client.get("jsonplaceholder.typicode.com", "/users").send(ar -> {
+      if (ar.succeeded()) {
+        HttpResponse<Buffer> response = ar.result();
+        //process result
+        System.out.println(response.bodyAsJsonArray().encodePrettily());
+      } else {
+        System.out.println(ar.cause());
+      }
+    });
+
+  }
+}
+
+
+public class ThirdPartyRESTCallVerticle extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(ThirdPartyRESTCallVerticle.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new UserRestApi());
+  }
+}
+*********************************************************************************************
+Service Discovery and Registry:
+
+Service Communication Via Distributed database:
+...............................................
+
+In distributed Computing , Components are talking each other not directly, because
+
+What if the requested Component not available
+
+What if the requested Component is busy to handle the request
+
+What if the requested Component slow.
+
+Distributed Service(component) data base : Service Registry
+ Service registry is key-value pair database holding service References.
+
+In Application:
+  -Service-Object--Type - RESTEndPoint,DatabaseConnection,MessageResource(RabbitMQ)......
+     -Resource
+
+
+In Vertx Context:
+ 
+ You can Store any resource into Service Registry.
+
+What is Service Discovery?
+
+   Exploring something from some Where.
+
+Service Discovery mesans, exploring /Querying/ discovering "Objects" from the Service Registry.
+
+What is Service Registry?
+
+ Service Registry is software, which provides storage.
+
+Popular Registry Servers:
+.........................
+
+1.eureka server
+
+2.Apache zoo keeper
+
+3.Consule
+
+4.Kubernetes
+
+5.Redis
+etc....
+
+
+
+
+				      Verticles
+					  |
+
+				   ServiceDiscovery Instance -Registre and lookup
+                                           |
+
+					Bridge --Provided by Vertx
+                                         --------
+					     |
+                                        Registry Server -Apache Zooker
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+Setup :
+
+1.download registry server from https://zookeeper.apache.org/doc/current/zookeeperStarted.html#sc_Download
+
+2.extract tar/zip file where ever the location
+
+3.create conf/zoo.cfg  from conf/zoo_sample.cfg(by copy and paste)
+
+4.Add the below entries
+
+conf/zoo.cfg
+tickTime=2000
+dataDir=/var/lib/zookeeper
+clientPort=2181
+
+5.start zoo keeper server
+  go to bin/ folder and excute zkServer.command /sh file
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+Types of Resources(Services):
+.............................
+The services you can register into registry
+
+HTTP Endpoint -HttpEndPoint.createRecord
+Event Bus Service -EventBus.createRecord
+Message Source
+JDBC Data Source
+Redis Data Source
+MongoDb Data Source
+
+
+Vertx uses on Object --Record Which is like "Bag" which has resource information..
+
+ Resource--->Record 
+
+Vertx has ServiceDiscover Instance, which helps to publish / un publish ,and discover
+services 
+
+
+ Resource--->Record  ----| Discovery.publish(record)-----ZooKeeper
+
+
+Syntax:
+
+Record httpRecord = HttpEndPoint.createRecord("name-of-service","host",port,"api",meta information-new Json());
+
+discovery.publish(httpRecord,callback)
+
+consume
+discovery.getRecord(new JsonObject().put("name","name-of-service",callback))
+
+							
+package com.ibm.vertx.microservice;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.WebClient;
+import io.vertx.servicediscovery.Record;
+import io.vertx.servicediscovery.ServiceDiscovery;
+import io.vertx.servicediscovery.ServiceDiscoveryOptions;
+import io.vertx.servicediscovery.types.HttpEndpoint;
+
+public class ServiceDiscoveryVerticle extends AbstractVerticle {
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    ServiceDiscoveryOptions discoveryOptions = new ServiceDiscoveryOptions();
+
+    //enable discovery server : apache zoo keeper
+    discoveryOptions.setBackendConfiguration(new JsonObject()
+      .put("connection", "127.0.0.1:2181")
+      .put("ephemeral", true)
+      .put("guaranteed", true)
+      .put("basePath", "/services/my-backend")
+    );
+    ServiceDiscovery discovery = ServiceDiscovery.create(vertx, discoveryOptions);
+
+    //Record Creation
+    Record httpEndPointRecord = HttpEndpoint
+      .createRecord("http-posts-service",
+        true, "jsonplaceholder.typicode.com", 443, "/posts", new JsonObject());
+
+    discovery.publish(httpEndPointRecord, ar -> {
+      if (ar.succeeded()) {
+        System.out.println("Successfully published to Zookeeper...>>>>" + ar.result().toJson());
+      } else {
+        System.out.println(" Not Published " + ar.cause());
+      }
+    });
+
+    //Consume :
+    vertx.setTimer(5000, ar -> {
+
+      //discover service
+      HttpEndpoint.getWebClient(discovery, new JsonObject().put("name", "http-posts-service"), sar -> {
+        //Get Resource from discover server
+        WebClient client = sar.result();
+        client.get("/posts").send(res -> {
+          System.out.println("Response is ready!");
+          System.out.println(res.result().bodyAsJsonArray());
+          //remove /release discovery record
+          ServiceDiscovery.releaseServiceObject(discovery, client);
+        });
+
+      });
+
+    });
+
+
+  }
+}
+//////////////////////////////////////////////////////////////////////////////////////////
+
+class CommonVerticle extends AbstractVerticle{
+  
+ //commmon funcitonallity
+
+}
+
+class YourVerticle extends CommonVerticle{
+
+ 
+}
+
+
+package com.unisys.vertx.microservice.sd;
+
+import io.vertx.circuitbreaker.CircuitBreaker;
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.CompositeFuture;
+import io.vertx.core.Future;
+import io.vertx.core.impl.ConcurrentHashSet;
+import io.vertx.core.json.JsonObject;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
+import io.vertx.servicediscovery.Record;
+import io.vertx.servicediscovery.ServiceDiscovery;
+import io.vertx.servicediscovery.ServiceDiscoveryOptions;
+import io.vertx.servicediscovery.types.EventBusService;
+import io.vertx.servicediscovery.types.HttpEndpoint;
+import io.vertx.servicediscovery.types.JDBCDataSource;
+import io.vertx.servicediscovery.types.MessageSource;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
+
+public abstract class BaseMicroServiceVerticle extends AbstractVerticle {
+
+  private static final Logger logger = LoggerFactory.getLogger(BaseMicroServiceVerticle.class);
+
+  protected ServiceDiscovery discovery;
+  protected CircuitBreaker circuitBreaker;
+  protected Set<Record> registeredRecords = new ConcurrentHashSet<>();
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    System.out.println("BASE CLASS initalized");
+    // init service discovery instance
+    ServiceDiscoveryOptions discoveryOptions = new ServiceDiscoveryOptions();
+    discoveryOptions.setBackendConfiguration(new JsonObject().put("connection", "localhost:2181")
+      .put("ephemeral", true).put("guaranteed", true).put("basePath", "/services/my-backend"));
+
+    discovery = ServiceDiscovery.create(vertx, discoveryOptions);
+  }
+
+  protected Future<Void> publishHttpEndpoint(String name, String host, int port) {
+    System.out.println("publish http end point");
+    //Record record = HttpEndpoint.createRecord(name, host, port,new JsonObject().put("test",""));
+    Record record = HttpEndpoint.createRecord(name, host, port, "/",
+      new JsonObject().put("api.name", config().getString("api.name", ""))
+    );
+    System.out.println(config().getString("api.name", "default value"));
+    System.out.println(record);
+    return publish(record);
+  }
+
+  protected Future<Void> publishHttpEndpoint(String name, boolean ssl, String host, int port) {
+    System.out.println("publish http end point");
+    //Record record = HttpEndpoint.createRecord(name, host, port,new JsonObject().put("test",""));
+    Record record = HttpEndpoint.createRecord(name, ssl, host, port, "/",
+      new JsonObject().put("api.name", config().getString("api.name", ""))
+    );
+    System.out.println(config().getString("api.name", "default value"));
+    System.out.println(record);
+    return publish(record);
+  }
+
+  private Future<Void> publish(Record record) {
+    System.out.println("Inside publish record");
+    if (discovery == null) {
+      try {
+        System.out.println("Discovery is null");
+        start();
+      } catch (Exception e) {
+        throw new IllegalStateException("Cannot create discovery service");
+      }
+    }
+
+    Future<Void> future = Future.future();
+    // publish the service
+    discovery.publish(record, ar -> {
+      System.out.println("Inside publish record -success");
+
+      if (ar.succeeded()) {
+        registeredRecords.add(record);
+        logger.info("Service <" + ar.result().getName() + ">successfully published to zookeeper");
+        System.out.println(registeredRecords.size() + " Records Published");
+        future.complete();
+      } else {
+        future.fail("failded to create");
+      }
+    });
+
+    return future;
+  }
+
+  protected Future<Void> publishMessageSource(String name, String address) {
+    Record record = MessageSource.createRecord(name, address);
+    return publish(record);
+  }
+
+  protected Future<Void> publishJDBCDataSource(String name, JsonObject location) {
+    Record record = JDBCDataSource.createRecord(name, location, new JsonObject());
+    return publish(record);
+  }
+
+  protected Future<Void> publishEventBusService(String name, String address, Class serviceClass) {
+    Record record = EventBusService.createRecord(name, address, serviceClass);
+    return publish(record);
+  }
+
+//  protected void publishLogEvent(String type, JsonObject data) {
+//    JsonObject msg = new JsonObject().put("type", type)
+//      .put("message", data);
+//    vertx.eventBus().publish(LOG_EVENT_ADDRESS, msg);
+//  }
+//
+//  protected void publishLogEvent(String type, JsonObject data, boolean succeeded) {
+//    JsonObject msg = new JsonObject().put("type", type)
+//      .put("status", succeeded)
+//      .put("message", data);
+//    vertx.eventBus().publish(LOG_EVENT_ADDRESS, msg);
+//  }
+
+  @Override
+  public void stop(Future<Void> future) throws Exception {
+    List<Future> futures = new ArrayList<>();
+    registeredRecords.forEach(record -> {
+      Future<Void> cleanupFuture = Future.future();
+      futures.add(cleanupFuture);
+      discovery.unpublish(record.getRegistration(), cleanupFuture.completer());
+    });
+
+    if (futures.isEmpty()) {
+      discovery.close();
+      future.complete();
+    } else {
+      CompositeFuture.all(futures)
+        .setHandler(ar -> {
+          discovery.close();
+          if (ar.failed()) {
+            future.fail(ar.cause());
+          } else {
+            future.complete();
+          }
+        });
+    }
+  }
+
+
+}
+
+************************
+
+package com.unisys.vertx.microservice.sd;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.example.util.Runner;
+import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.WebClient;
+import io.vertx.servicediscovery.types.HttpEndpoint;
+
+class PostVerticleService extends BaseMicroServiceVerticle {
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    config().put("api.name", "posts");
+    publishHttpEndpoint("posts-services", true, "jsonplaceholder.typicode.com", 443);
+
+    config().put("api.name", "users");
+    publishHttpEndpoint("users-services", true, "jsonplaceholder.typicode.com", 443);
+
+
+    vertx.setTimer(5000, res -> {
+      //posts
+      HttpEndpoint.getWebClient(discovery, new JsonObject().put("name", "posts-services"), ar -> {
+        if (ar.succeeded()) {
+          WebClient client = ar.result();
+          client.get("/" + config().getString("api.name")).send(response -> {
+            System.out.println("Response is ready!");
+            System.out.println(response.succeeded());
+            System.out.println(response.result().bodyAsJsonArray().encodePrettily());
+          });
+        }
+      });
+    });
+
+    vertx.setTimer(5000, res -> {
+      //posts
+      HttpEndpoint.getWebClient(discovery, new JsonObject().put("name", "users-services"), ar -> {
+        if (ar.succeeded()) {
+          WebClient client = ar.result();
+          client.get("/" + config().getString("api.name")).send(response -> {
+            System.out.println("Response is ready!");
+            System.out.println(response.succeeded());
+            System.out.println(response.result().bodyAsJsonArray().encodePrettily());
+          });
+        }
+      });
+    });
+  }
+}
+
+public class PostMain extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(PostMain.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new PostVerticleService());
+  }
+}
+*********************************************************************************************
+
+Circuite Breaker:
+................
+
+Circuite Breaker is  tool, used to handle failures-Resilence.
+
+Using circuitebreaker client need to wait for long time, if something goes wrong, we can
+send some response to client , instead of throwing errors.
+
+ Incase of failures,client will always get some positive data.
+
+
+Vertx-Provides ciruite-breaker libs...
+
+
+package com.unisys.vertx.microservice.sd;
+
+import io.vertx.circuitbreaker.CircuitBreaker;
+import io.vertx.circuitbreaker.CircuitBreakerOptions;
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.CompositeFuture;
+import io.vertx.core.Future;
+import io.vertx.core.impl.ConcurrentHashSet;
+import io.vertx.core.json.JsonObject;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
+import io.vertx.servicediscovery.Record;
+import io.vertx.servicediscovery.ServiceDiscovery;
+import io.vertx.servicediscovery.ServiceDiscoveryOptions;
+import io.vertx.servicediscovery.types.EventBusService;
+import io.vertx.servicediscovery.types.HttpEndpoint;
+import io.vertx.servicediscovery.types.JDBCDataSource;
+import io.vertx.servicediscovery.types.MessageSource;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
+
+public abstract class BaseMicroServiceVerticle extends AbstractVerticle {
+
+  private static final Logger logger = LoggerFactory.getLogger(BaseMicroServiceVerticle.class);
+
+  protected ServiceDiscovery discovery;
+  protected CircuitBreaker circuitBreaker;
+  protected Set<Record> registeredRecords = new ConcurrentHashSet<>();
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    System.out.println("BASE CLASS initalized");
+    // init service discovery instance
+    ServiceDiscoveryOptions discoveryOptions = new ServiceDiscoveryOptions();
+    discoveryOptions.setBackendConfiguration(new JsonObject().put("connection", "localhost:2181")
+      .put("ephemeral", true).put("guaranteed", true).put("basePath", "/services/my-backend"));
+
+    discovery = ServiceDiscovery.create(vertx, discoveryOptions);
+
+    CircuitBreakerOptions options = new CircuitBreakerOptions();
+    options.setMaxFailures(2);// no of failures will be allowed , after that , ciruit will open
+    options.setTimeout(2000); // consider a failure if the operation deos not succeed in time
+    options.setFallbackOnFailure(true); // if any failure, should i handle fallback or not
+    options.setResetTimeout(5000); // time spent in open state before attempting to retry.
+    circuitBreaker = CircuitBreaker.create("my-circuit-breaker", vertx, options);
+
+  }
+
+  protected Future<Void> publishHttpEndpoint(String name, String host, int port) {
+    System.out.println("publish http end point");
+    //Record record = HttpEndpoint.createRecord(name, host, port,new JsonObject().put("test",""));
+    Record record = HttpEndpoint.createRecord(name, host, port, "/",
+      new JsonObject().put("api.name", config().getString("api.name", ""))
+    );
+    System.out.println(config().getString("api.name", "default value"));
+    System.out.println(record);
+    return publish(record);
+  }
+
+  protected Future<Void> publishHttpEndpoint(String name, boolean ssl, String host, int port) {
+    System.out.println("publish http end point");
+    //Record record = HttpEndpoint.createRecord(name, host, port,new JsonObject().put("test",""));
+    Record record = HttpEndpoint.createRecord(name, ssl, host, port, "/",
+      new JsonObject().put("api.name", config().getString("api.name", ""))
+    );
+    System.out.println(config().getString("api.name", "default value"));
+    System.out.println(record);
+    return publish(record);
+  }
+
+  private Future<Void> publish(Record record) {
+    System.out.println("Inside publish record");
+    if (discovery == null) {
+      try {
+        System.out.println("Discovery is null");
+        start();
+      } catch (Exception e) {
+        throw new IllegalStateException("Cannot create discovery service");
+      }
+    }
+
+    Future<Void> future = Future.future();
+    // publish the service
+    discovery.publish(record, ar -> {
+      System.out.println("Inside publish record -success");
+
+      if (ar.succeeded()) {
+        registeredRecords.add(record);
+        logger.info("Service <" + ar.result().getName() + ">successfully published to zookeeper");
+        System.out.println(registeredRecords.size() + " Records Published");
+        future.complete();
+      } else {
+        future.fail("failded to create");
+      }
+    });
+
+    return future;
+  }
+
+  protected Future<Void> publishMessageSource(String name, String address) {
+    Record record = MessageSource.createRecord(name, address);
+    return publish(record);
+  }
+
+  protected Future<Void> publishJDBCDataSource(String name, JsonObject location) {
+    Record record = JDBCDataSource.createRecord(name, location, new JsonObject());
+    return publish(record);
+  }
+
+  protected Future<Void> publishEventBusService(String name, String address, Class serviceClass) {
+    Record record = EventBusService.createRecord(name, address, serviceClass);
+    return publish(record);
+  }
+
+//  protected void publishLogEvent(String type, JsonObject data) {
+//    JsonObject msg = new JsonObject().put("type", type)
+//      .put("message", data);
+//    vertx.eventBus().publish(LOG_EVENT_ADDRESS, msg);
+//  }
+//
+//  protected void publishLogEvent(String type, JsonObject data, boolean succeeded) {
+//    JsonObject msg = new JsonObject().put("type", type)
+//      .put("status", succeeded)
+//      .put("message", data);
+//    vertx.eventBus().publish(LOG_EVENT_ADDRESS, msg);
+//  }
+
+  @Override
+  public void stop(Future<Void> future) throws Exception {
+    List<Future> futures = new ArrayList<>();
+    registeredRecords.forEach(record -> {
+      Future<Void> cleanupFuture = Future.future();
+      futures.add(cleanupFuture);
+      discovery.unpublish(record.getRegistration(), cleanupFuture.completer());
+    });
+
+    if (futures.isEmpty()) {
+      discovery.close();
+      future.complete();
+    } else {
+      CompositeFuture.all(futures)
+        .setHandler(ar -> {
+          discovery.close();
+          if (ar.failed()) {
+            future.fail(ar.cause());
+          } else {
+            future.complete();
+          }
+        });
+    }
+  }
+
+
+}
+
+package com.unisys.vertx.microservice.sd;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.example.util.Runner;
+import io.vertx.circuitbreaker.CircuitBreaker;
+import io.vertx.circuitbreaker.CircuitBreakerOptions;
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.buffer.Buffer;
+import io.vertx.ext.web.client.HttpResponse;
+import io.vertx.ext.web.client.WebClient;
+
+class CircuitBreakerVerticle extends BaseMicroServiceVerticle {
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    //Create Breaker Object
+
+    //how to employ safty to my code when failure dedecuted
+
+    circuitBreaker.executeWithFallback(
+      future -> {
+        WebClient client = WebClient.create(vertx);
+//
+//// Send a GET request
+        client
+          .get("jsonplaceholder.typicode.com", "/postsdd")
+          .send(ar -> {
+            // Obtain response
+            HttpResponse<Buffer> response = ar.result();
+            if (response.statusCode() != 200) {
+              future.fail("HTTP error");
+            } else {
+              future.complete(response.bodyAsJsonArray().encode());
+            }
+
+          });
+      }, v -> {
+        // Executed when the circuit is opened
+        return "Hello, I am fallback";
+      })
+      .onComplete(ar -> {
+        // Do something with the result
+        if (ar.succeeded()) {
+          System.out.println(ar.result());
+        } else {
+          System.out.println(ar.cause());
+
+        }
+      });
+
+
+  }
+}
+
+
+public class FalutApp extends AbstractVerticle {
+  public static void main(String[] args) {
+    Runner.runExample(FalutApp.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    vertx.deployVerticle(new CircuitBreakerVerticle());
+  }
+}
+
+**********************************************************************************************
+
+
+
+Clusters:
+
+ Creating more instances,group them -Cluster ---achive load balancing.
+
+
+ when you deploy vertx application, you can specify, no of instances with clusters.
+
+
+//how to run
+
+ -maven - plugin - lanucher.
+
+ -java -jar target/app-fat.jar  --options
+
+ -vertx fileName.java -instances=10 -cluster
+  vertx fileName.java -instances=10 -ha
+
+you can even specifiy clustering via program
+  options.setInstance(10)
+ clusteredVerticle.deploy(vertlicle,options)
+
+Who is doing this high availability?
+  ->ClusterManager
+
+ClusterManger is like service dicovery server.
+
+Vertx by default has cluster manager, Hazelcast.
+
+others
+infinispan
+Apache ignite
+Apache zookeeper.
+
+For advanced ha and clustering , we need to edit or add clusterconfig.xml files.
+
+
+package com.unisys.vertx.microservice.ha;
+
+import io.vertx.core.AbstractVerticle;
+import io.vertx.core.VertxOptions;
+import io.vertx.core.http.HttpServer;
+
+
+public class HighAvailbilityApp extends AbstractVerticle {
+
+  @Override
+  public void start() {
+
+    HttpServer server = vertx.createHttpServer();
+
+    server.requestHandler(req -> {
+      long id = Thread.currentThread().getId();
+      req.response().end("<h1> I am coming from " + id + " Machine");
+    });
+
+    server.listen(8888, "localhost", handler -> {
+      if (handler.succeeded()) {
+        System.out.println("Server is Ready! " + Thread.currentThread().getId());
+      } else {
+        System.out.println("Server failed to Start");
+      }
+    });
+  }
+
+  @Override
+  public void stop() throws Exception {
+  }
+}
+C:\session\UniSys-Vertx\unisysverxdemo\src\main\java\com\unisys\vertx\microservice\ha>vertx run HighAvai
+lbilityApp.java -instance=5 -ha
+
+*********************************************************************************************
+
+Service Proxy:
+
+
+Steps 1:
+
+Add depedencies
+
+Step 2
+
+create package-info.java , in current dir
+
+@ModuleGen(name = "greeter-service",groupPackage = "com.unisys.advanced.serviceproxy")
+package com.unisys.advanced.serviceproxy;
+
+import io.vertx.codegen.annotations.ModuleGen;
+
+
+step 3 : interface
+
+@ProxyGen
+@VertxGen
+interface GreeterService {
+  //biz apis
+  void sayHello(String name, Handler<AsyncResult<String>> handler);
+
+  //api to create Service Proxy Object
+  static GreeterService createProxy(Vertx vertx, String address) {
+    return new GreeterServiceVertxEBProxy(vertx, address);
+  }
+}
+
+step 4 : interface implementation
+
+class GreeterServiceImpl implements GreeterService {
+  @Override
+  public void sayHello(String name, Handler<AsyncResult<String>> handler) {
+    handler.handle(Future.succeededFuture("Hello" + name));
+  }
+}
+
+step 5 : Service Registeration with ServiceBinder
+
+  //Service Registeration
+    GreeterService greeterService = new GreeterServiceImpl();
+    new ServiceBinder(vertx).setAddress(GreeterService.ADDRESS).register(GreeterService.class, greeterService);
+
+step 6 : consuming
+GreeterService service = GreeterService.createProxy(vertx, GreeterService.ADDRESS);
+    service.sayHello("Subramanian", ar -> {
+        if(ar.succeeded()){
+          System.out.println(ar.result());
+        }
+    });
+
+********************************************************************************************
+
+Reactive Programming and Vertx:
+..............................
+      Reactive Programming and Implementation
+			   ***************************************
+
+
+What is Reactive?
+
+	The Oxford dictionary defines reactive as “showing a response to a stimulus.”
+
+Response: The Result 
+Stimulus : trigger /actions : Events
+
+So, reactive software reacts and adapts its behavior based on the stimuli it receives.
+
+However, the responsiveness and adaptability promoted by this definition are programming challenges "because the flow of computation isn’t controlled by the programmer but by
+the stimuli".
+
+                 "Program control is driven by Events"
+
+
+What is Reactive Programming?
+It is one of the Programming Paradigm. like oo,functional,procedure.
+
+
+It is hybrid Programming paradigm.
+
+
+ReactiveProgramming = Observable Design Pattern + Iterator Design Pattern + Functional Programming principles + Event Driven Programming + Push based Programming.
+
+
+The reactive programming paradigm is often presented in object-oriented languages 
+   as an extension of the "Observer design pattern".
+
+Observer Design Pattern implementation: Object communications and its object relationships
+
+There are one to many relationship among objects
+
+There are many to many relationship among objects
+
+
+
+ 			 Owner/Subject/Producer
+				 |
+			         |
+				 |
+			Event Notification Interface
+				 |
+		-------------------------------------------------	
+		|           	|               |         |
+       Listeners               Listners      Listeners  Listeners
+       subscribers 1..N
+
+
+How do they communicate?
+  By passing messages via method calls with intermediate object(Event)
+
+Owner sends "stimuls/events" via notification interface to Listeners/Subscribers
+
+Subscribers are notificated for an event, based on that event who will "react/respond"
+//////////////////////////////////////////////////////////////////////////////////////////////
+
+Problems with Legacy Design Pattern;
+
+
+   Owner----send event(stimuli)-------->Event interface----Subscriber listen for an event.
+
+
+ Owner emits events
+      |
+      emit event "data"| Event Channel
+			-----------
+			  Event-Object-name of the event and data---event is given|event is 										  processed
+                        -----------
+			
+      |
+  send data to somebody(listener)
+      |
+   once data is avaiable
+      |
+ reading database
+
+
+ What if owner emits "error" and how do you process?
+
+ 
+
+Owner emits events
+      |
+      emit event "err"| Event Channel
+			-----------
+			  Event-Object-name of the event and err---event is given|event is 										  processed
+                        -----------
+			
+      |
+  send data to somebody(listener)
+      |
+   once err is avaiable
+      |
+  reading database
+
+
+
+what if owner finishes his job? how to inform subscribers to stop listening
+
+ -No implementation in legacy observer design pattern
+
+ -In legacy ,data and error is sent via single channel.
+
+This is missing part , 
+   complete event(signal)
+   separate channel
+
+Reactive programming is going to address this problem.
+-------------------------------------------------------------------------------------------
+
+			   Reactive Observable Pattern
+			
+				    Producer
+					|
+			   ----------------------------
+		           |             |            |  --->Channel
+                         data          Error       Complete
+                          |             |             |
+                                                     
+                          |		|             |
+                          ------------------------------  
+                                        |
+                                     Subscriber
+
+*********************************************************************************************
+                                Iterator Design Pattern
+                                ........................
+
+Pull based and Push based Programming:
+......................................
+
+Pull based : iterator
+
+Data can be represented inside  a datastructure-Array,List,Map,simple Memory,file,db
+  -Data Source : could be anything
+
+How to read data(iterate/walkthrough) from the data source?
+
+
+				  Data Source(Array /List)
+                                   [1,2,3,4,5,6,7,8,9,10]  ----DataSource
+					  |
+				   Pull 1, Pull 2, Pull 3...->Object	
+			
+		
+Problems with pull based iterator:
+
+
+1.Producer who produces data from the datasource and Subscriber/consumer , both must be active
+at the same time. ==> which creates tight coupling. 
+
+
+Push based iterator: Async Programming : Event Driven programming
+
+
+Flow:
+
+1.subcriber is requesting producer to pull the data : blocking mode.
+2.if any error is thrown, subscriber need to handler error using try...catch...
+3.if data source reaches end , no way to handle completed stuff.
+
+
+			          Data Source(Array /List)
+                                   (1,2,3,4,5,6,7,8,9,10)   Object
+				 	
+				   1   2    3    4
+				  push push push push
+				 ---------------------------------
+                       	  Stream      1  2  3 4 5 .... |   
+				 ----------------------------------
+					| |        | |        |  | 
+					| |        | |        |  | =>Event Channel
+				    Data Event	 Error Event  Completed Event
+				    -----------------------------------------
+						|
+				      Subscriber/Listener
+
+
+Reactive  Programming = Observable(data,error,complete -events) + Push based iterator
+
+Stream : The place where data/error is pushed from the datasource, as soon as data/error is pushed, event will be triggered, as soon as event trigered, channels will be prepared to send
+event along with "message".
+
+   
+DataSource---->Producer--->push---into stream|emit events|----channels---send messages---Subscribers.
+
+********************************************************************************************
+                     Reactive Programs are Powered with Functional Style
+                      ..................................................
+
+if you want to data from the streams, we need apis to process the data, those apis are designed with functional style
+
+
+
+                                   Data Source(Array /List)
+                                      [1,2,3,4,5,6,7,8,9,10]   Object
+				 	
+				   1   2    3    4
+				  push push push push
+				 ---------------------------------
+                       	  Stream      1  2  3 4 5 .... | filter data : even numbers
+                                          filter(predicate)
+						|
+				 ----------------------------------
+					  filtered data : even numbers
+					| |        | |        |  | 
+					| |        | |        |  | =>Event Channel
+				    Data Event	 Error Event  Completed Event
+				    -----------------------------------------
+						|
+						
+				      Subscriber/Listener -looking for even numbers only.
+
+
+filter is api, which we call as method(operator - in reactive programming), "Should be Pure function"
+
+ -Pure functions
+ -Immutablity
+ -Higher order functions: function composition
+*********************************************************************************************
+
+
+Reactive  Programming = Observable(data,error,complete -events) + Push based iterator + functional style apis.
+
+
+*********************************************************************************************
+
+What is Stream?
+
+    Flow of data over period of time , from producer to consumer via "Event Channels".
+    
+    Stream is a Channel through which you send data.
+       Data could be
+                   Domain data
+		   Error data
+******************************************************************************************
+Applications of Reactive Programming?
+
+	                          "Data Processing"
+
+ if you have large set of data, you dont want to load all the data in memory , you want to stream the data while streaming you want to process the data,consume processed data.
+
+
+Types of Streams:
+
+
+1.Up Stream
+
+2.Down Stream
+*********************************************************************************************
+
+Terminallgy
+
+1.Reactive
+2.Reactive Programming
+3.Reactive System
+4.Reactive Specification
+5.Reactive Streams
+
+
+
+Reactive Programming is more popular now a days. 
+
+But when reactive programming came there was no standard body , to ensure /certify that the System is "fully Reactive".
+
+
+
+To measure the system , what we have built, or going to build "Is Reactive".
+
+The Specification was pubilshed in a web site.https://www.reactivemanifesto.org/
+
+
+
+
+Principles:
+
+1.Responsive:
+  All Reactive systems  should respond Properly with respect to data,errors,completed.
+
+
+2.Resilient: The ability to handle failure and recover
+
+The system stays responsive in the face of failure. This applies not only to highly-available, mission-critical systems
+
+
+3.Elastic: The ability to scale horizontally (scale out/in)
+
+  The system stays responsive under varying workload. Reactive Systems can react to changes in the input rate by increasing or decreasing the resources allocated to service these inputs.
+
+
+4.Message Driven:
+
+	Reactive Systems rely on asynchronous message-passing to establish a boundary between components that ensures loose coupling, isolation and location transparency.
+........................................................................................
+
+
+                       Reactive Programming Implemenation
+
+
+
+No Separate Reactive Programming language exists
+
+Languages extends Reactive Programming principels via "Extensions/Plugins"
+
+                    "ReactiveX"
+
+
+
+
+Languages
+	Java: RxJava
+	JavaScript: RxJS
+	C#: Rx.NET
+	C#(Unity): UniRx
+	Scala: RxScala
+	Clojure: RxClojure
+	C++: RxCpp
+	Lua: RxLua
+	Ruby: Rx.rb
+	Python: RxPY
+	Go: RxGo
+	Groovy: RxGroovy
+	JRuby: RxJRuby
+	Kotlin: RxKotlin
+	Swift: RxSwift
+	PHP: RxPHP
+	Elixir: reaxive
+	Dart: RxDart
+
+ReactiveX for platforms and frameworks
+	RxNetty
+	RxAndroid
+	RxCocoa
+        Project Reactor
+*******************************************************************************************
+ReactivX : Extension lib provides Reactive Programming
+
+As a first step in the direction of reactive programming, Microsoft created the Reactive Extensions (Rx) library in the .NET ecosystem. 
+
+Then RxJava implemented reactive programming on the JVM. As time went on, a standardization for Java emerged through the Reactive Streams effort, a specification that defines a set of interfaces and interaction rules for reactive libraries on the JVM.
+
+**********************************************************************************************
+
+ReactiveX on Java Stack:
+
+1.Rxjava
+2.Project Reactor -- which is used inside Spring framework 5.0 - SpringWebflux
+
+
+Setup:
+
+2.create Maven project
+
+
+
+Rxjava Api Overview:
+
+Objects:
+
+1.Observable
+2.Single
+3.Subject
+4.Completable
+5.Flowable -Reactive Streams-- Back Pressure
+6.Scheduler
+
+
+Apis(Methods):Pure functions,Which is based builder design pattern.
+
+1.Operators
+   Operators are technically methods/functions in reactive programming.
+
+Observable:
+
+ To Represent Stream.
+
+
+Operators are classified based on usage
+
+1.Creating Observables
+
+   Creating Stream Objects based on factory design pattern.that means Objects are created
+by factory apis.
+
+   create:
+	create an Observable from scratch by calling observer methods programmatically
+
+   interval:
+	Create Stream , which emits data based cpu clock.
+
+2.Transforming Observables
+
+   Converts source Stream(up Stream) into down stream after applying transformation.
+
+   map
+
+3.Filtering Observables
+
+   Works based on "Prdicate" -booleans 
+
+4.Combining Observables
+   
+   Merging many streams into single streams
+
+   Zip
+
+5.Error handling
+
+  try
+  Retry
+
+6.Observable Utility Operators
+
+
+7.Conditional and Boolean Operators
+
+8.Mathematical and Aggregate Operators
+
+9.Backpressure Operators
+
+10.Connectable Observable Operators
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+Use case : first RxJava
+
+Stream is represented by Observable Object.
+
+*********************************************************************************************
+
+		     DataSource
+		        |
+		       List
+		        |
+   Application----Stream- Records--- jdbc--NonBlocking----talks to  database
+		   |
+                Reactivly Processing
+		   |
+                operator filter data
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+public class GreeterStream {
+
+    public static void main(String[] args) {
+
+        //create stream from scratch
+
+        Observable<String> stream = Observable.create(source -> {
+            //push data into stream
+            source.onNext("Subramanian");//data channel
+            source.onNext("Ram");
+            source.onNext("Karthik");
+        });
+
+        //subscriber :three signal -data,error,complete
+        //stream.subscribe(data -> System.out.println(data), err -> System.out.println(err), () -> System.out.println("done!"));
+        stream.subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+
+    }
+}
+//////////////////////////////////////////////////////////////////////////////////////////////
+
+Stream will be closed
+1.when error is thrown
+2.whhen you call complete
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+public class DataErrorCompleteStream {
+    public static void main(String[] args) {
+
+        //create stream from scratch
+        Observable<String> stream = Observable.create(source -> {
+            //push data into stream
+            source.onNext("Subramanian");// emit data event
+            source.onNext("Ram");
+            
+
+            //push error
+            //source.onError(new Exception("Something went wrong")); //emit error event
+            source.onNext("Karthik");
+            source.onComplete(); // emit complete event
+
+        });
+
+        //subscriber :three signal -data,error,complete
+        //stream.subscribe(data -> System.out.println(data), err -> System.out.println(err), () -> System.out.println("done!"));
+        stream.subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+    }
+}
+///////////////////////////////////////////////////////////////////////////////////////////
+
+biz logic:
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+public class LoginStream {
+    public static void main(String[] args) {
+
+        //create stream from scratch
+        Observable<String> stream = Observable.create(source -> {
+            //biz logic
+            String userName = "admin";
+            String password = "admin";
+            if (userName.equals("admin") && password.equals("admin")) {
+                //emit success message
+                source.onNext("Login Success");
+                source.onComplete();
+            } else {
+                source.onError(new Exception("Login Failed"));
+            }
+
+        });
+
+        //subscriber :three signal -data,error,complete
+        //stream.subscribe(data -> System.out.println(data), err -> System.out.println(err), () -> System.out.println("done!"));
+        stream.subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+
+    }
+}
+////////////////////////////////////////////////////////////////////////////////////////////
+
+How to push sequence of numbers?
+
+
+
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+public class SequenceStream {
+    public static void main(String[] args) {
+        //create stream from scratch
+        Observable<Integer> stream = Observable.create(source -> {
+            //sequence of nos from 1 to 10
+            for (int i = 1; i <= 10; i++) {
+                source.onNext(i);
+            }
+            source.onComplete();
+        });
+
+        stream.subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+    }
+}
+////////////////////////////////////////////////////////////////////////////////////////////
+
+Stream Processing:
+
+ You have list of /sequence of numbers, i want to process them.
+
+
+How to transform items from one stream into another?
+How to create upstream and downstream?
+
+operator: map : transform each item into another item from source stream, will create down stream.
+
+Use case: Multiply each item by 2.
+
+
+Source stream
+ |
+up stream   ----1----2-----3----4-----5--|->
+ 	     
+                 map(x->2*x) --Operator --Return new Stream(Obsverable Object)
+  
+down stream ----2----4-----6----8-----10--|-> 
+
+               .subscribe
+
+
+     stream.map()=>new Observable() - Pure function(function returns new Object every time:immuablity).
+
+   stream.opeator1().opeator2().OperatorN().subscribe()
+
+Source stream
+ |
+up stream   ----1----2-----3----4-----5--|->
+ 	     
+                 map(x->2*x) --Operator --Return new Stream(Obsverable Object)
+  
+down stream ----2----4-----6----8-----10--|-> 
+(up Stream)
+             map(x->2*x) --Operator --Return new Stream(Obsverable Object)
+
+ 
+down stream ----2----4-----6----8-----10--|-> 
+(upStream)
+          map(x->2*x) --Operator --Return new Stream(Obsverable Object)
+
+ 
+down stream ----2----4-----6----8-----10--|-> 
+
+    subscribe
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+public class StreamTransformationUsingMap {
+    public static void main(String[] args) {
+        //source stream
+        //create stream from scratch
+//        Observable<Integer> sourceStream = Observable.create(source -> {
+//            //sequence of nos from 1 to 10
+//            for (int i = 1; i <= 10; i++) {
+//                source.onNext(i);
+//            }
+//            source.onComplete();
+//        });
+//
+//        //apply transformation ; multiply the item by 2
+////        Observable<Integer> downStream= sourceStream.map(item->{
+////            return item * 2;  // transformed stream
+////        });
+//        Observable<Integer> downStream = sourceStream.map(item -> item * 2);
+//
+//        downStream.subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+        Observable<Integer> upStream = Observable.create(source -> {
+            //sequence of nos from 1 to 10
+            for (int i = 1; i <= 10; i++) {
+                source.onNext(i);
+            }
+            source.onComplete();
+        });
+        upStream.map(item -> item * 2).subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+    }
+}
+////////////////////////////////////////////////////////////////////////////////////////////
+
+How to apply pridcate api: boolean expression
+
+How to transform items from one stream into another and filter items?
+
+
+operator: map,filter : transform each item into another item from source stream, will create down stream,filter and create
+
+
+
+
+import io.reactivex.Observable;
+
+public class FilterStream {
+    public static void main(String[] args) {
+        Observable<Integer> upStream = Observable.create(source -> {
+            for (int i = 1; i <= 10; i++) {
+                source.onNext(i);
+            }
+            source.onComplete();
+        });
+        upStream.filter(item -> item % 2 == 0)
+                .map(item->item * 10)
+                .subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+    }
+}
+///////////////////////////////////////////////////////////////////////////////////////////
+
+How to create streams from data sources?
+
+ datasources  - array,list,sequnces,primitives...............
+
+create operator is used to create stream from basic.
+
+but most of the time, we dont need, we can use ready made stream creation opeators.
+
+
+just - create stream from sequence of numbers
+
+fromArray -create stream from Array
+
+fromIterable -create Stream from Collection.
+
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+import java.util.Arrays;
+import java.util.List;
+
+class Employee {
+    private int id;
+    private String name;
+
+    public Employee() {
+        // TODO Auto-generated constructor stub
+    }
+
+    public Employee(int id, String name) {
+        super();
+        this.id = id;
+        this.name = name;
+    }
+
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    @Override
+    public String toString() {
+        return "Employee [id=" + id + ", name=" + name + "]";
+    }
+}
+
+public class FactoryApiToCreateStream {
+
+    public static void main(String[] args) {
+        Observable<Integer> stream = Observable.just(1, 2, 3, 4, 5, 6, 7, 8);
+        stream.filter(item -> item % 2 == 0)
+                .subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+        //Data Source Array
+        String[] names = {"A", "B", "C", "D", "E"};
+        Observable<String> namesStream = Observable.fromArray(names);
+        namesStream.filter(name -> name == "A")
+                .subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+        Employee[] employees = {new Employee(1, "A1"), new Employee(2, "A2"), new Employee(3, "A3")};
+
+        Observable<Employee> employeeStream = Observable.fromArray(employees);
+
+        employeeStream.filter(employee -> employee.getName().equals("A1"))
+                .subscribe(System.out::println, System.out::println, () -> System.out.println("done!"));
+
+        //List as Data Source
+
+        List<String> list = Arrays.asList(names);
+
+        Observable<String> listStream = Observable.fromIterable(list);
+        listStream.filter(name -> name == "A")
+                .subscribe(System.out::println, System.out::println, () -> System.out.println("done"));
+
+
+    }
+}
+///////////////////////////////////////////////////////////////////////////////////////////
+Broadcasting:
+...............
+
+Producer(Stream)-----can be connected with ---one Subscriber : one to one
+  This communication style is called "unicast".
+
+Producer(Stream)----can be connected with ----->many subscribers : one to Many
+  This communication style is called "Multicast".
+
+
+Based on this communication style stream can be classified into two category.
+
+1.Cold Observable(Cold Stream)
+2.Hot Observable(Hot Stream)
+
+
+1.Cold Observable
+
+1.Observable that doesn’t emit items until a subscriber subscribes.
+
+2.If we have more than one subscriber, then observable will 
+emit sequence of items to all subscribers one by one.
+
+3.Each subscriber get fresh copy of the data from the begining.
+
+4.Most of Observerables are Cold.
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+public class ColdStream {
+    public static void main(String[] args) throws InterruptedException {
+
+        //Source Stream : stream broad cast data to multiple subscribers
+        Observable<Integer> coldStream = Observable.create(source -> {
+            for (int i = 0; i < 5; i++) {
+                source.onNext(i);
+            }
+            source.onComplete();
+        });
+        //subscriber 1
+        coldStream.subscribe(data->{
+            System.out.println("Subramanian's Data " + data);
+        },System.out::println,()->System.out.println("Subramanian done"));
+
+        //subscriber 2
+        coldStream.subscribe(data->{
+            System.out.println("James's Data " + data);
+        },System.out::println,()->System.out.println("James done"));
+
+        //Late joining
+        Thread.sleep(5000);
+        //subscriber 3
+        coldStream.subscribe(data->{
+            System.out.println("Karthik's Data " + data);
+        },System.out::println,()->System.out.println("Kathik done"));
+
+
+    }
+}
+////////////////////////////////////////////////////////////////////////////////////////////
+
+Hot Observables:
+................
+
+1.Observables that don’t wait for any subscription. They start emitting items   when created.
+
+2.They don’t emit the sequence of items again for a new subscriber.
+
+3.When an item is emitted by hot observable, all the subscribers that are   subscribed will get the emitted item at once.
+
+
+
+
+There are many ways to implement hot observables:
+
+1.ConnectableObservable
+2.Subjects
+
+1.ConnectableObservable:
+  A ConnectableObservable is a single observable source for different observers.
+
+A ConnectableObservable is a single observable source for different observers. The main difference aside from being a single observable source is that calling subscribe on a ConnectableObserver will not trigger emission, but connect will.
+
+  Will help to conver existing Cold to Hot.
+
+
+publish() -->publishing an item into stream
+
+
+connect() ---> join all the subscribers under single stream
+
+
+
+publish.refCount ==== publish + connect =ConnectableObservable
+
+
+How to unsubscribe
+
+  every subcribe / doOnSubscribe returns an Object "Disposable"  which has method
+dispose method.
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.observables.ConnectableObservable;
+
+import java.util.concurrent.TimeUnit;
+
+public class HotStreamUsingConnectable {
+
+    public static void main(String[] args) throws InterruptedException {
+
+        // create Hold Stream
+        //this stream starts publishing long numeber every 1 sec
+        Observable<Long> coldstream = Observable.interval(1, TimeUnit.SECONDS);
+
+        //we are converting cold to hot using publish.refCount
+        //Hot Stream
+        Observable<Long> connectableObservable = coldstream.publish().refCount();
+
+        System.out.println("Streaming begins");
+
+        Disposable subu = connectableObservable.doOnSubscribe(data -> System.out.println("Subu joined"))
+                .doFinally(() -> System.out.println("Subramanian Left"))
+                .subscribe(item -> System.out.println("Subu got item" + item));
+
+        Thread.sleep(5000);
+
+        Disposable ram = connectableObservable.doOnSubscribe(data -> System.out.println("Ram joined"))
+                .doFinally(() -> System.out.println("Ram Left"))
+                .subscribe(item -> System.out.println("Ram got item" + item));
+
+        Thread.sleep(3000);
+        //moving out /unscribing from the room
+        subu.dispose();
+
+
+
+
+    }
+}
+//////////////////////////////////////////////////////////////////////////////////////////////
+
+Subjects:
+.........
+
+ - create the hot observable from scratch
+
+Types of Subjects:
+
+1.AsyncSubject 
+..............
+A. AsyncSubject will emit only the last value to its subscribers when source observable completes.
+
+B. AsyncSubject will get all the items emitted by source observable but only emit the last item when source observable calls its onCompleted method.
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+import io.reactivex.subjects.AsyncSubject;
+
+public class AsyncSubjectDemo {
+    public static void main(String[] args) {
+        //One to Many : multi cast Streaming using Subject
+        //Async Subject requires source Stream
+        // Source Stream
+//        Observable<Integer> sourceStream = Observable.create(subscriber -> {
+//            for (int i = 0; i <= 20; i++) {
+//                subscriber.onNext(i);
+//            }
+//            subscriber.onComplete();
+//        });
+        //cold stream
+        Observable<Integer> sourceStream = Observable.just(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+
+        //Create Async Subject
+        AsyncSubject<Integer> asyncSubject = AsyncSubject.create();
+
+        //connect source stream with async subject
+        sourceStream.subscribe(asyncSubject);
+
+        asyncSubject.subscribe(data -> {
+            System.out.println("Subu's AsyncSubject Subject :" + data);
+        }, err -> {
+            System.out.println(err);
+        }, () -> {
+            System.out.println("Done!");
+        });
+        asyncSubject.subscribe(data -> {
+            System.out.println("Ram's AsyncSubject Subject :" + data);
+        }, err -> {
+            System.out.println(err);
+        }, () -> {
+            System.out.println("Done!");
+        });
+
+    }
+}
+2.BehaviourSubject:
+ 
+ BehaviourSubject emits the most recently item at the time of subscription or
+ a default item if none has been emitted and then continues the sequence until complete.
+
+
+
+package com.ibm.reactive.streams;
+
+
+import java.util.concurrent.TimeUnit;
+import io.reactivex.Observable;
+import io.reactivex.subjects.BehaviorSubject;
+
+public class BehaviourSubjectDemo {
+    private static void addSomeDelay() {
+        try {
+            System.out.println("Wait for some seconds");
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) {
+
+        //soure stream
+        Observable<Long> coldb = Observable.interval(1000, TimeUnit.MILLISECONDS);
+
+        //create Behaviour Subject
+        BehaviorSubject<Long> behaviorSubject = BehaviorSubject.create();
+
+        coldb.subscribe(behaviorSubject);
+
+        addSomeDelay();
+        // BehaviourSubject emits the most recently item at the time of subscription
+        behaviorSubject.subscribe(data -> {
+            System.out.println("Subu's BehaviorSubject Subject :" + data);
+        }, err -> {
+            System.out.println(err);
+        }, () -> {
+            System.out.println("Done!");
+        });
+
+        behaviorSubject.subscribe(data -> {
+            System.out.println("Ram's BehaviorSubject Subject :" + data);
+        }, err -> {
+            System.out.println(err);
+        }, () -> {
+            System.out.println("Done!");
+        });
+
+        addSomeDelay();
+
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////
+Single
+
+RxJava (and its derivatives like RxGroovy & RxScala) has developed an Observable variant called “Single.”
+
+
+A Single is something like an Observable, but instead of emitting a series of values — anywhere from none at all to an infinite number — it always either emits one value or an error notification.
+
+
+Single item - either data /error
+package com.ibm.reactive.streams;
+
+import io.reactivex.Single;
+
+public class SingleDemo {
+    public static void main(String[] args) {
+        //emit only data
+        Single.just("Hello").subscribe(System.out::println);
+        Single single=Single.create(source -> {
+            try {
+                if ("hello".equals("helloxxx")) {
+                    source.onSuccess("Hello Single");
+                    source.onSuccess("How are you");
+                    source.onSuccess("Hai");
+                    source.onSuccess("welcome");
+                    
+
+
+                } else {
+                    throw new RuntimeException("some thing went wrong!");
+                }
+            } catch (RuntimeException e) {
+                source.onError(e);
+
+            }
+
+        });
+        single.subscribe(System.out::println, System.out::println);
+    }
+}
+
+Maybe:
+
+Maybe is similar to Single . but special Singles
+
+only item: Maybe.just
+only completed single: Maybe.empty
+only error : Maybe.error
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Maybe;
+import io.reactivex.Single;
+
+public class SingleDemo {
+    public static void main(String[] args) {
+        //emit only data
+        Single.just("Hello").subscribe(System.out::println);
+        Single single=Single.create(source -> {
+            try {
+                if ("hello".equals("helloxxx")) {
+                    source.onSuccess("Hello Single");
+                    source.onSuccess("How are you");
+                    source.onSuccess("Hai");
+                    source.onSuccess("welcome");
+
+
+
+                } else {
+                    throw new RuntimeException("some thing went wrong!");
+                }
+            } catch (RuntimeException e) {
+                source.onError(e);
+
+            }
+
+        });
+        single.subscribe(System.out::println, System.out::println);
+
+        Maybe.just("maybe").subscribe(System.out::println);
+        //Maybe.error(new Exception("Error")).subscribe(System.out::println);
+        Maybe.empty().subscribe(System.out::println,System.out::println,()->System.out.println("completed"));
+    }
+}
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+Completeable:
+
+Objective :
+
+no error
+not data.
+only complete
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Completable;
+
+public class CompletableDemo {
+    public static void main(String[] args) throws InterruptedException  {
+
+        Completable.complete().subscribe(() -> System.out.println("done!"));
+        Thread.sleep(5000);
+    }
+}
+///////////////////////////////////////////////////////////////////////////////////////
+
+BackPressure: 
+
+ Upstream
+    |
+  sending data   - upstream is faster than down stream, down stream is slow
+
+ downstream
+
+
+Reactive Streams:
+................
+
+Backpressure in RxJava comes into picture when you have an observable which emits items so fast that consumer can’t keep up with the flow leading to the existence of emitted but unconsumed items.
+
+How unconsumed items, which are emitted by observables but not consumed by subscribers, are managed and controlled is what backpressure strategy deals with
+
+How to handle back pressure?
+
+ "Reactive Streams" is an initiative to provide a standard for asynchronous stream processing with non-blocking back pressure.
+
+               "https://www.reactive-streams.org/"
+
+Since it requires system resources to handle backpressure, you need to choose right backpressure strategy that suits your requirement.
+
+
+
+How to implement backpressure:
+
+
+Back pressure Handling:
+
+ 1.Via Operators
+ 2.Via RXjava 2 /Java 9 Api Flowable===Observable
+    Observable non-back pressure stream
+    Flowable back-pressure powered stream.
+ 3.Via Project Reactor
+      ->Flux === Observable ====Flowable
+
+
+How to create Stream?
+
+ Observable
+ Flowable == Observable + BackPressure feature
+
+Where is Flowable api
+  -Rxjava version 2
+  
+
+The project called "Project Reactor" is final extension from "Rxjava +Flowable +NonBlocking"
+
+Flux --->Observable - Flowable + nonblocking. =>Spring integrates this lib as "Spring WebFlux"
+Mono ---->Subject
+
+Implementations:
+
+1.Via Operators:
+
+Most of the Flitering Operaors are back pressure managed operators
+
+ debounce,distinct,ElementAt,filter,first,ignoreElements,Last,sample,skip,skipLast,take,takeLast.
+
+During backpressure, items may be droped
+
+ drop operators: fliter
+
+ collecting operators: window,buffer
+
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.Observable;
+
+public class BackPressureDemo {
+    public static void main(String[] args) {
+        //take is back pressure operator
+        Observable<Integer> stream = Observable.range(1, 200000).take(20).filter(i -> i % 2 == 0);
+        stream.subscribe(System.out::println);
+    }
+}
+
+i want to findout even numbers from 1 to n from n numbers.
+
+n numebers =100;
+
+30 items i want even numbers.
+
+ iterate 1 to 100
+   
+   extract first 30 items
+    find even numbers from 30 items
+
+upstream----Buffer(store value) --filter
+
+
+
+
+Reactive Pull
+..............
+Above two strategies manage backpressure by dropping items, if your application need to process all the items emitted by source observable then you can’t use those strategies.
+
+In this scenario, using reactive pull strategy is the right choice. In reactive pull, subscriber requests required number of items from observable by calling request().
+
+In RxJava2, Flowable needs to be used to utilize reactive pull backpressure as observable in RxJava2 is non-backpressured.
+
+
+package com.ibm.reactive.streams;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Flowable;
+
+public class FlowableBackPressure {
+    public static void main(String[] args) {
+        Flowable<Integer> flowStream = Flowable.create(source->{
+            for(int i=0;i<2000;i++){
+                source.onNext(i);
+            }
+        }, BackpressureStrategy.BUFFER);
+        //Buffers all values until downstream consumes it
+        flowStream.subscribe(System.out::println);
+    }
+}
+*******************************************************************************************************
+
+Vertx and Reactive Programming:
+...............................
+
+Vertx apis powered with rxjava we call "Rx-ifed" (Abstracted rxjava apis).
+//////////////////////////////////////////////////////////////////////////////////////////////
+package com.unisys.vertx.rx;
+
+import io.vertx.example.util.Runner;
+import io.vertx.reactivex.core.AbstractVerticle;
+import io.vertx.reactivex.core.http.HttpClient;
+import io.vertx.reactivex.core.http.HttpServer;
+import io.vertx.reactivex.core.http.HttpServerResponse;
+
+public class RxVerticle extends AbstractVerticle {
+
+  public static void main(String[] args) {
+    Runner.runExample(RxVerticle.class);
+  }
+
+  @Override
+  public void start() throws Exception {
+    super.start();
+    HttpServer server = vertx.createHttpServer();
+
+    server.requestStream().toFlowable().subscribe(req -> {
+      HttpServerResponse resp = req.response();
+
+      String contentType = req.getHeader("Content-Type");
+      if (contentType != null) {
+        resp.putHeader("Content-Type", contentType);
+      }
+      resp.setChunked(true);
+
+      req.toFlowable().subscribe(
+        resp::write,
+        err -> {
+        },
+        resp::end
+      );
+    });
+    server.listen(3000);
+
+    vertx.setTimer(1000, ar -> {
+      HttpClient client = vertx.createHttpClient();
+      client.put(3000, "localhost", "/", resp -> {
+        System.out.println("Got response " + resp.statusCode());
+        resp.handler(buf -> System.out.println(buf.toString("UTF-8")));
+      }).setChunked(true).putHeader("Content-Type", "text/plain").write("Hello reactive").end();
+    });
+  }
+}
 
 
 
